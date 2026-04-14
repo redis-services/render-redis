@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: redis-saas-api
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: REDIS_URL
+        fromService:
+          name: redis-saas-store
+          type: redis
+          property: connectionString
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      # Add your projects here:
+      # - key: PROJECT_PROJECT_1
+      #   value: your-secret-api-key
+      # - key: PROJECT_PROJECT_2
+      #   value: another-secret-key
+
+databases:
+  - name: redis-saas-store
+    type: redis
+    plan: free
+    region: oregon
