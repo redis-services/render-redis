@@ -30,7 +30,7 @@ from projects import PROJECT_REGISTRY  # { "project_id": "api_key" }
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.redis = aioredis.from_url(
-        os.environ["REDIS_URL"],
+        get_redis_url(),
         decode_responses=True,
     )
     yield
@@ -107,6 +107,23 @@ def de(v: Optional[str]) -> Any:
 def get_base_url(request: Request) -> str:
     return str(request.base_url).rstrip("/")
 
+def get_redis_url() -> str:
+    for env_key in ("REDIS_URL", "REDIS_CONNECTION_STRING", "REDIS_INTERNAL_URL"):
+        value = os.getenv(env_key, "").strip()
+        if value:
+            return value
+
+    if os.getenv("RENDER"):
+        raise RuntimeError(
+            "Redis connection string is missing. In Render, set REDIS_URL or map it "
+            "from your Key Value instance with fromService.property=connectionString."
+        )
+
+    raise RuntimeError(
+        "Redis connection string is missing. Set REDIS_URL to something like "
+        "redis://localhost:6379/0."
+    )
+
 def redirect_admin(message: str, message_type: str = "ok") -> RedirectResponse:
     query = urlencode({"msg": message, "msg_type": message_type})
     return RedirectResponse(url=f"/admin?{query}", status_code=303)
@@ -131,13 +148,17 @@ async def admin_panel(request: Request, msg: str = "", msg_type: str = "ok"):
         {"id": pid, "key": key}
         for pid, key in PROJECT_REGISTRY.items()
     ]
-    return templates.TemplateResponse("admin.html", {
-        "request": request,
-        "projects": projects,
-        "base_url": get_base_url(request),
-        "message": msg,
-        "message_type": msg_type,
-    })
+    return templates.TemplateResponse(
+        request,
+        "admin.html",
+        {
+            "request": request,
+            "projects": projects,
+            "base_url": get_base_url(request),
+            "message": msg,
+            "message_type": msg_type,
+        },
+    )
 
 
 @app.post("/admin/verify")
