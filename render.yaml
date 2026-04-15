@@ -12,6 +12,11 @@ services:
           property: connectionString
       - key: PYTHON_VERSION
         value: 3.11.0
+      # Optional MongoDB Atlas persistence for admin-managed projects:
+      # - key: MONGODB_URI
+      #   value: mongodb+srv://<user>:<password>@<cluster>/<db>?retryWrites=true&w=majority
+      # - key: MONGODB_DB
+      #   value: central_redis
       # Add your projects here:
       # - key: PROJECT_PROJECT_1
       #   value: your-secret-api-key

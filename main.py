@@ -23,6 +23,8 @@ from fastapi import FastAPI, HTTPException, Header, Depends, Request, Form, Body
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
+from pymongo import AsyncMongoClient
+from pymongo.errors import PyMongoError
 
 from projects import PROJECT_REGISTRY  # { "project_id": "api_key" }
 
@@ -35,7 +37,34 @@ async def lifespan(app: FastAPI):
         get_redis_url(),
         decode_responses=True,
     )
+    app.state.mongo_client = None
+    app.state.project_collection = None
+    app.state.mongo_projects = {}
     app.state.keep_alive_task = None
+
+    mongo_uri = get_mongodb_uri()
+    if mongo_uri:
+        try:
+            app.state.mongo_client = AsyncMongoClient(mongo_uri)
+            await app.state.mongo_client.admin.command("ping")
+            database = app.state.mongo_client[get_mongodb_database_name()]
+            app.state.project_collection = database[get_mongodb_collection_name()]
+            await app.state.project_collection.create_index("project_id", unique=True)
+
+            async for doc in app.state.project_collection.find({}, {"_id": 0, "project_id": 1, "api_key": 1}):
+                project_id = doc.get("project_id", "").strip().lower()
+                api_key = doc.get("api_key", "").strip()
+                if project_id and api_key:
+                    app.state.mongo_projects[project_id] = api_key
+
+            print(f"MongoDB Atlas connected: loaded {len(app.state.mongo_projects)} persisted project(s)")
+        except Exception as exc:
+            print(f"⚠️  MongoDB connection failed, continuing without persistence: {exc}")
+            if app.state.mongo_client is not None:
+                await app.state.mongo_client.close()
+            app.state.mongo_client = None
+            app.state.project_collection = None
+            app.state.mongo_projects = {}
 
     if is_keep_alive_enabled():
         app.state.keep_alive_task = asyncio.create_task(self_ping_loop())
@@ -50,6 +79,9 @@ async def lifespan(app: FastAPI):
                 await keep_alive_task
             except asyncio.CancelledError:
                 pass
+        mongo_client = app.state.mongo_client
+        if mongo_client is not None:
+            await mongo_client.close()
         await app.state.redis.aclose()
 
 app = FastAPI(title="Multi-Tenant Redis API", lifespan=lifespan)
@@ -65,8 +97,8 @@ if not ADMIN_PASSWORD:
 
 # ── Auth ───────────────────────────────────────────────────────────────────────
 
-def get_project(project_id: str, x_api_key: str = Header(...)) -> str:
-    expected = PROJECT_REGISTRY.get(project_id)
+def get_project(request: Request, project_id: str, x_api_key: str = Header(...)) -> str:
+    expected = get_project_registry_for_app(request.app).get(project_id)
     if not expected:
         raise HTTPException(404, f"Project '{project_id}' not found")
     if x_api_key != expected:
@@ -130,6 +162,15 @@ def get_keep_alive_url() -> str:
             return value
     return ""
 
+def get_mongodb_uri() -> str:
+    return os.getenv("MONGODB_URI", "").strip()
+
+def get_mongodb_database_name() -> str:
+    return os.getenv("MONGODB_DB", "central_redis").strip() or "central_redis"
+
+def get_mongodb_collection_name() -> str:
+    return os.getenv("MONGODB_PROJECTS_COLLECTION", "projects").strip() or "projects"
+
 def get_redis_url() -> str:
     for env_key in ("REDIS_URL", "REDIS_CONNECTION_STRING", "REDIS_INTERNAL_URL"):
         value = os.getenv(env_key, "").strip()
@@ -153,6 +194,14 @@ def redirect_admin(message: str, message_type: str = "ok") -> RedirectResponse:
 
 def get_redis(request: Request) -> aioredis.Redis:
     return request.app.state.redis
+
+def get_project_registry_for_app(app: FastAPI) -> dict[str, str]:
+    registry = dict(PROJECT_REGISTRY)
+    registry.update(getattr(app.state, "mongo_projects", {}))
+    return registry
+
+def is_mongo_enabled(app: FastAPI) -> bool:
+    return getattr(app.state, "project_collection", None) is not None
 
 def is_keep_alive_enabled() -> bool:
     return os.getenv("KEEP_ALIVE_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
@@ -203,8 +252,12 @@ async def keep_alive(redis: aioredis.Redis = Depends(get_redis)):
 @app.get("/admin", response_class=HTMLResponse)
 async def admin_panel(request: Request, msg: str = "", msg_type: str = "ok"):
     projects = [
-        {"id": pid, "key": key}
-        for pid, key in PROJECT_REGISTRY.items()
+        {
+            "id": pid,
+            "key": key,
+            "source": "mongo" if pid in request.app.state.mongo_projects else "env",
+        }
+        for pid, key in sorted(get_project_registry_for_app(request.app).items())
     ]
     return templates.TemplateResponse(
         request,
@@ -215,6 +268,7 @@ async def admin_panel(request: Request, msg: str = "", msg_type: str = "ok"):
             "base_url": get_base_url(request),
             "message": msg,
             "message_type": msg_type,
+            "mongo_enabled": is_mongo_enabled(request.app),
         },
     )
 
@@ -227,6 +281,7 @@ async def admin_verify(body: AdminVerifyBody):
 
 @app.post("/admin/add-project")
 async def admin_add_project(
+    request: Request,
     admin_password: str = Form(...),
     project_id: str = Form(...),
     api_key: str = Form(""),
@@ -238,20 +293,36 @@ async def admin_add_project(
     project_id = project_id.strip().lower().replace(" ", "_").replace("-", "_")
     if not project_id:
         return redirect_admin("Project ID cannot be empty", "err")
-    if project_id in PROJECT_REGISTRY:
+    if project_id in get_project_registry_for_app(request.app):
         return redirect_admin(f"Project {project_id} already exists", "err")
 
     # Generate key if not supplied
     if not api_key.strip():
         api_key = secrets.token_urlsafe(32)
+    api_key = api_key.strip()
 
-    PROJECT_REGISTRY[project_id] = api_key.strip()
+    if is_mongo_enabled(request.app):
+        try:
+            await request.app.state.project_collection.update_one(
+                {"project_id": project_id},
+                {"$set": {"project_id": project_id, "api_key": api_key}},
+                upsert=True,
+            )
+            request.app.state.mongo_projects[project_id] = api_key
+            return redirect_admin(f"Project {project_id} added and stored in MongoDB Atlas")
+        except PyMongoError as exc:
+            return redirect_admin(f"Failed to store project: {exc}", "err")
 
-    return redirect_admin(f"Project {project_id} added successfully")
+    PROJECT_REGISTRY[project_id] = api_key
+    return redirect_admin(
+        f"Project {project_id} added for this runtime only. Set MONGODB_URI to persist it.",
+        "ok",
+    )
 
 
 @app.post("/admin/remove-project/{project_id}")
 async def admin_remove_project(
+    request: Request,
     project_id: str,
     admin_password: str = Form(...),
     redis: aioredis.Redis = Depends(get_redis),
@@ -259,10 +330,22 @@ async def admin_remove_project(
     if not check_admin(admin_password):
         return redirect_admin("Wrong admin password", "err")
 
-    if project_id not in PROJECT_REGISTRY:
+    registry = get_project_registry_for_app(request.app)
+    if project_id not in registry:
         return redirect_admin(f"Project {project_id} not found", "err")
-
-    del PROJECT_REGISTRY[project_id]
+    if project_id in request.app.state.mongo_projects:
+        try:
+            await request.app.state.project_collection.delete_one({"project_id": project_id})
+            del request.app.state.mongo_projects[project_id]
+        except PyMongoError as exc:
+            return redirect_admin(f"Failed to remove project from MongoDB: {exc}", "err")
+    elif project_id in PROJECT_REGISTRY:
+        del PROJECT_REGISTRY[project_id]
+    else:
+        return redirect_admin(
+            f"Project {project_id} is not runtime-managed and could not be removed.",
+            "err",
+        )
 
     # Optionally flush project's keys from Redis
     pattern = f"{project_id}:*"
