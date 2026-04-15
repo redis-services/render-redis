@@ -34,24 +34,30 @@ def get_redis_url() -> str:
     raise RuntimeError("Redis connection string is missing.")
 
 
+def get_base_url() -> str:
+    return os.getenv("BASE_URL", "").strip().rstrip("/")
+
+
 async def self_ping_loop():
     await asyncio.sleep(10)
 
-    url = os.getenv("BASE_URL")
+    url = get_base_url()
     if not url:
         print("⚠️ BASE_URL not set, skipping self-ping")
         return
 
-    while True:
-        try:
-            async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(follow_redirects=True) as client:
+        while True:
+            try:
                 res = await client.get(f"{url}/keep-alive", timeout=10)
-                print("Keep-alive ping:", res.status_code)
-        except Exception as e:
-            print("Keep-alive failed:", e)
+                res.raise_for_status()
+                print("Keep-alive OK:", res.status_code)
+            except httpx.HTTPStatusError as exc:
+                print(f"Keep-alive returned {exc.response.status_code}: {exc.response.text[:200]}")
+            except Exception as e:
+                print("Keep-alive failed:", e)
 
-        await asyncio.sleep(300)  # 5 minutes
-
+            await asyncio.sleep(300)  # 5 minutes
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -163,7 +169,7 @@ async def keep_alive(redis: aioredis.Redis = Depends(get_redis)):
             "cache": val,
         }
     except Exception as e:
-        return {"status": "error", "error": str(e)}
+        raise HTTPException(status_code=503, detail=f"Keep-alive failed: {e}")
 
 
 # ── Basic Redis Ops ────────────────────────────────────────────────────────────
