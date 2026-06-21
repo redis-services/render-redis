@@ -5,196 +5,192 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Redis SaaS — Admin</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Syne:wght@700;800&display=swap" rel="stylesheet" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
-      --bg: #0a0a0f;
-      --surface: #111118;
-      --border: #1e1e2e;
-      --border-bright: #2e2e4e;
-      --red: #ff3c3c;
-      --red-dim: rgba(255,60,60,0.12);
-      --green: #00e87a;
-      --green-dim: rgba(0,232,122,0.10);
-      --yellow: #ffd066;
-      --text: #e8e8f0;
-      --muted: #5a5a7a;
-      --mono: 'IBM Plex Mono', monospace;
-      --display: 'Syne', sans-serif;
+      --bg: #0f1117;
+      --bg-soft: #151823;
+      --surface: #181c28;
+      --surface-2: #1e2331;
+      --border: #262c3d;
+      --border-bright: #353d54;
+      --accent: #6366f1;
+      --accent-soft: rgba(99,102,241,0.12);
+      --accent-bright: #818cf8;
+      --green: #22c55e;
+      --green-soft: rgba(34,197,94,0.12);
+      --amber: #f59e0b;
+      --rose: #f43f5e;
+      --rose-soft: rgba(244,63,94,0.12);
+      --text: #e6e8ee;
+      --text-soft: #9ba3b4;
+      --muted: #6b7280;
+      --sans: 'Inter', system-ui, sans-serif;
+      --mono: 'JetBrains Mono', monospace;
+      --shadow: 0 8px 30px rgba(0,0,0,0.4);
+      --radius: 14px;
     }
 
     body {
-      background: var(--bg);
+      background:
+        radial-gradient(1200px 600px at 80% -10%, rgba(99,102,241,0.10), transparent 60%),
+        radial-gradient(900px 500px at 0% 0%, rgba(34,197,94,0.06), transparent 55%),
+        var(--bg);
       color: var(--text);
-      font-family: var(--mono);
+      font-family: var(--sans);
       min-height: 100vh;
-      overflow-x: hidden;
-    }
-
-    /* grid bg */
-    body::before {
-      content: '';
-      position: fixed;
-      inset: 0;
-      background-image:
-        linear-gradient(rgba(255,60,60,0.03) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(255,60,60,0.03) 1px, transparent 1px);
-      background-size: 40px 40px;
-      pointer-events: none;
-      z-index: 0;
-    }
-
-    /* glow */
-    body::after {
-      content: '';
-      position: fixed;
-      top: -200px; left: 50%;
-      transform: translateX(-50%);
-      width: 600px; height: 400px;
-      background: radial-gradient(ellipse, rgba(255,60,60,0.08) 0%, transparent 70%);
-      pointer-events: none;
-      z-index: 0;
+      -webkit-font-smoothing: antialiased;
+      line-height: 1.5;
     }
 
     .wrap {
-      position: relative;
-      z-index: 1;
-      max-width: 860px;
+      max-width: 920px;
       margin: 0 auto;
-      padding: 48px 24px 80px;
+      padding: 56px 24px 96px;
     }
 
     /* ── Header ── */
     header {
       display: flex;
-      align-items: flex-end;
+      align-items: center;
       justify-content: space-between;
-      margin-bottom: 48px;
-      padding-bottom: 24px;
-      border-bottom: 1px solid var(--border);
+      margin-bottom: 40px;
       gap: 16px;
       flex-wrap: wrap;
     }
-
-    .logo {
-      font-family: var(--display);
-      font-size: 28px;
-      font-weight: 800;
-      letter-spacing: -0.5px;
-      line-height: 1;
+    .brand { display: flex; align-items: center; gap: 14px; }
+    .brand-mark {
+      width: 44px; height: 44px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, var(--accent), var(--accent-bright));
+      display: flex; align-items: center; justify-content: center;
+      font-size: 22px;
+      box-shadow: 0 6px 18px rgba(99,102,241,0.35);
     }
-    .logo span { color: var(--red); }
+    .logo {
+      font-size: 20px;
+      font-weight: 800;
+      letter-spacing: -0.4px;
+      line-height: 1.1;
+    }
+    .logo span { color: var(--accent-bright); }
+    .logo-sub {
+      font-size: 11px;
+      color: var(--muted);
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      margin-top: 2px;
+    }
 
     .health-badge {
       display: flex;
       align-items: center;
       gap: 8px;
-      font-size: 11px;
-      color: var(--muted);
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-soft);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      padding: 8px 14px;
+      border-radius: 999px;
     }
     .dot {
       width: 8px; height: 8px;
       border-radius: 50%;
       background: var(--green);
-      box-shadow: 0 0 8px var(--green);
-      animation: pulse 2s infinite;
-    }
-    @keyframes pulse {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.4; }
+      box-shadow: 0 0 0 4px var(--green-soft);
     }
 
     /* ── Flash messages ── */
     .flash {
-      padding: 12px 16px;
-      border-radius: 4px;
+      padding: 13px 16px;
+      border-radius: 10px;
       margin-bottom: 24px;
-      font-size: 13px;
+      font-size: 13.5px;
+      font-weight: 500;
       display: flex;
       align-items: center;
       gap: 10px;
     }
-    .flash.ok  { background: var(--green-dim); border: 1px solid rgba(0,232,122,0.25); color: var(--green); }
-    .flash.err { background: var(--red-dim);   border: 1px solid rgba(255,60,60,0.25); color: var(--red); }
+    .flash.ok  { background: var(--green-soft); border: 1px solid rgba(34,197,94,0.3);  color: #86efac; }
+    .flash.err { background: var(--rose-soft);  border: 1px solid rgba(244,63,94,0.3);  color: #fda4af; }
 
     /* ── Section titles ── */
     .section-label {
-      font-size: 10px;
-      letter-spacing: 0.18em;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.1em;
       text-transform: uppercase;
-      color: var(--muted);
-      margin-bottom: 16px;
+      color: var(--text-soft);
+      margin-bottom: 14px;
     }
 
-    /* ── Add project card ── */
+    /* ── Cards ── */
     .add-card {
       background: var(--surface);
       border: 1px solid var(--border);
-      border-radius: 8px;
+      border-radius: var(--radius);
       padding: 28px;
       margin-bottom: 40px;
-      transition: border-color 0.2s;
+      box-shadow: var(--shadow);
     }
-    .add-card:hover { border-color: var(--border-bright); }
 
     .field-row {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 12px;
-      margin-bottom: 16px;
+      gap: 16px;
+      margin-bottom: 18px;
     }
-    @media (max-width: 520px) {
+    @media (max-width: 560px) {
       .field-row { grid-template-columns: 1fr; }
     }
 
     label {
       display: block;
-      font-size: 10px;
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
-      color: var(--muted);
-      margin-bottom: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-soft);
+      margin-bottom: 7px;
     }
 
     input[type="text"], input[type="password"] {
       width: 100%;
-      background: var(--bg);
+      background: var(--bg-soft);
       border: 1px solid var(--border);
-      border-radius: 4px;
+      border-radius: 10px;
       color: var(--text);
-      font-family: var(--mono);
-      font-size: 13px;
-      padding: 10px 12px;
+      font-family: var(--sans);
+      font-size: 14px;
+      padding: 11px 14px;
       outline: none;
-      transition: border-color 0.2s;
+      transition: border-color 0.18s, box-shadow 0.18s;
     }
     input[type="text"]:focus, input[type="password"]:focus {
-      border-color: var(--red);
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-soft);
     }
     input::placeholder { color: var(--muted); }
 
-    /* password reveal */
     .pw-wrap { position: relative; }
-    .pw-wrap input { padding-right: 40px; }
+    .pw-wrap input { padding-right: 42px; }
     .pw-toggle {
       position: absolute;
-      right: 10px; top: 50%;
+      right: 8px; top: 50%;
       transform: translateY(-50%);
       background: none; border: none;
       color: var(--muted); cursor: pointer;
-      font-size: 14px; padding: 2px;
+      font-size: 15px; padding: 4px;
       transition: color 0.15s;
     }
     .pw-toggle:hover { color: var(--text); }
 
     .hint {
-      font-size: 11px;
+      font-size: 12px;
       color: var(--muted);
-      margin-top: 4px;
+      margin-top: 6px;
     }
 
     /* ── Buttons ── */
@@ -202,79 +198,74 @@
       display: inline-flex;
       align-items: center;
       gap: 7px;
-      font-family: var(--mono);
-      font-size: 12px;
+      font-family: var(--sans);
+      font-size: 13.5px;
       font-weight: 600;
-      letter-spacing: 0.06em;
-      padding: 10px 20px;
-      border-radius: 4px;
+      padding: 11px 20px;
+      border-radius: 10px;
       border: none;
       cursor: pointer;
-      transition: all 0.15s;
-      text-transform: uppercase;
+      transition: all 0.16s;
     }
     .btn-primary {
-      background: var(--red);
+      background: linear-gradient(135deg, var(--accent), var(--accent-bright));
       color: #fff;
-      box-shadow: 0 0 20px rgba(255,60,60,0.25);
+      box-shadow: 0 6px 18px rgba(99,102,241,0.3);
     }
     .btn-primary:hover {
-      background: #ff5555;
-      box-shadow: 0 0 28px rgba(255,60,60,0.4);
+      filter: brightness(1.08);
       transform: translateY(-1px);
+      box-shadow: 0 10px 24px rgba(99,102,241,0.42);
     }
     .btn-ghost {
-      background: transparent;
+      background: var(--surface-2);
       border: 1px solid var(--border);
-      color: var(--muted);
+      color: var(--text-soft);
     }
-    .btn-ghost:hover {
-      border-color: var(--red);
-      color: var(--red);
-    }
+    .btn-ghost:hover { border-color: var(--border-bright); color: var(--text); }
     .btn-danger {
-      background: var(--red-dim);
-      border: 1px solid rgba(255,60,60,0.2);
-      color: var(--red);
-      padding: 7px 14px;
-      font-size: 11px;
+      background: var(--rose-soft);
+      border: 1px solid rgba(244,63,94,0.25);
+      color: #fb7185;
+      padding: 8px 15px;
+      font-size: 12.5px;
     }
     .btn-danger:hover {
-      background: rgba(255,60,60,0.22);
-      border-color: var(--red);
+      background: rgba(244,63,94,0.2);
+      border-color: var(--rose);
     }
 
     .gen-btn {
-      margin-top: 24px;
-      display: inline-block;
-      font-size: 11px;
-      color: var(--muted);
+      margin-top: 10px;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--accent-bright);
       background: none;
       border: none;
       cursor: pointer;
-      font-family: var(--mono);
-      text-decoration: underline;
-      text-underline-offset: 3px;
+      font-family: var(--sans);
       padding: 0;
     }
-    .gen-btn:hover { color: var(--text); }
+    .gen-btn:hover { color: var(--accent); }
 
-    .actions { display: flex; gap: 10px; margin-top: 20px; align-items: center; }
+    .actions { display: flex; gap: 12px; margin-top: 22px; align-items: center; flex-wrap: wrap; }
+    .actions .note { font-size: 12px; color: var(--muted); }
 
-    /* ── Projects table ── */
-    .projects-section { margin-top: 8px; }
-
+    /* ── Projects ── */
     .project-row {
       background: var(--surface);
       border: 1px solid var(--border);
-      border-radius: 8px;
+      border-radius: var(--radius);
       padding: 20px 24px;
-      margin-bottom: 10px;
+      margin-bottom: 12px;
       display: grid;
       grid-template-columns: 1fr auto;
       align-items: center;
       gap: 16px;
-      transition: border-color 0.2s;
+      transition: border-color 0.2s, transform 0.2s;
       animation: slideIn 0.3s ease;
     }
     @keyframes slideIn {
@@ -283,33 +274,40 @@
     }
     .project-row:hover { border-color: var(--border-bright); }
 
+    .proj-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+    .proj-avatar {
+      width: 32px; height: 32px;
+      border-radius: 9px;
+      background: var(--accent-soft);
+      color: var(--accent-bright);
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 700; font-size: 14px;
+      text-transform: uppercase;
+    }
     .proj-id {
-      font-family: var(--display);
-      font-size: 15px;
+      font-size: 16px;
       font-weight: 700;
       color: var(--text);
-      margin-bottom: 8px;
     }
     .proj-meta {
       display: flex;
       flex-wrap: wrap;
-      gap: 16px;
+      gap: 10px 18px;
       align-items: center;
     }
-    .proj-key {
-      font-size: 12px;
-      color: var(--muted);
+    .proj-key, .proj-url {
+      font-size: 12.5px;
+      color: var(--text-soft);
       display: flex;
       align-items: center;
-      gap: 6px;
+      gap: 7px;
+      font-family: var(--mono);
     }
     .proj-key code {
-      color: var(--yellow);
-      letter-spacing: 0.04em;
-    }
-    .proj-url {
-      font-size: 11px;
-      color: var(--muted);
+      color: var(--amber);
+      background: rgba(245,158,11,0.08);
+      padding: 2px 7px;
+      border-radius: 6px;
     }
     .proj-url a {
       color: var(--green);
@@ -317,19 +315,18 @@
     }
     .proj-url a:hover { text-decoration: underline; }
 
-    .key-masked { letter-spacing: 0.1em; }
-
     .copy-btn {
       background: none;
       border: none;
       color: var(--muted);
       cursor: pointer;
-      font-size: 12px;
-      padding: 2px 4px;
-      transition: color 0.15s;
+      font-size: 13px;
+      padding: 3px 5px;
+      border-radius: 6px;
+      transition: all 0.15s;
       font-family: var(--mono);
     }
-    .copy-btn:hover { color: var(--text); }
+    .copy-btn:hover { color: var(--text); background: var(--surface-2); }
     .copy-btn.copied { color: var(--green); }
 
     /* ── Empty state ── */
@@ -337,13 +334,13 @@
       text-align: center;
       padding: 56px 24px;
       color: var(--muted);
-      font-size: 13px;
+      font-size: 14px;
       border: 1px dashed var(--border);
-      border-radius: 8px;
+      border-radius: var(--radius);
     }
     .empty big {
       display: block;
-      font-size: 28px;
+      font-size: 32px;
       margin-bottom: 12px;
     }
 
@@ -351,85 +348,99 @@
     #lock-screen {
       position: fixed;
       inset: 0;
-      background: var(--bg);
+      background:
+        radial-gradient(900px 500px at 50% 0%, rgba(99,102,241,0.12), transparent 60%),
+        var(--bg);
       z-index: 999;
       display: flex;
       align-items: center;
       justify-content: center;
+      padding: 24px;
     }
     .lock-box {
       background: var(--surface);
       border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 40px;
-      width: 340px;
+      border-radius: 18px;
+      padding: 40px 36px;
+      width: 380px;
+      max-width: 100%;
       text-align: center;
+      box-shadow: var(--shadow);
+    }
+    .lock-mark {
+      width: 56px; height: 56px;
+      border-radius: 16px;
+      background: linear-gradient(135deg, var(--accent), var(--accent-bright));
+      display: flex; align-items: center; justify-content: center;
+      font-size: 28px;
+      margin: 0 auto 18px;
+      box-shadow: 0 8px 22px rgba(99,102,241,0.4);
     }
     .lock-title {
-      font-family: var(--display);
       font-size: 22px;
       font-weight: 800;
-      margin-bottom: 8px;
+      margin-bottom: 6px;
     }
     .lock-subtitle {
-      font-size: 11px;
+      font-size: 13px;
       color: var(--muted);
-      margin-bottom: 28px;
-      letter-spacing: 0.06em;
+      margin-bottom: 26px;
     }
-    .lock-box input {
-      text-align: center;
-      letter-spacing: 0.1em;
-    }
-    .lock-box .btn-primary { width: 100%; justify-content: center; margin-top: 14px; }
-    .lock-err { color: var(--red); font-size: 12px; margin-top: 10px; min-height: 18px; }
+    .lock-box label { text-align: left; }
+    .lock-box .btn-primary { width: 100%; justify-content: center; margin-top: 16px; padding: 12px; }
+    .lock-err { color: var(--rose); font-size: 12.5px; margin-top: 12px; min-height: 18px; }
 
     /* ── Stats bar ── */
     .stats {
-      display: flex;
-      gap: 24px;
-      margin-bottom: 36px;
-      flex-wrap: wrap;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+      margin-bottom: 40px;
+    }
+    @media (max-width: 560px) {
+      .stats { grid-template-columns: 1fr; }
     }
     .stat {
       background: var(--surface);
       border: 1px solid var(--border);
-      border-radius: 6px;
-      padding: 14px 20px;
-      flex: 1;
-      min-width: 120px;
+      border-radius: 12px;
+      padding: 18px 20px;
     }
     .stat-val {
-      font-family: var(--display);
-      font-size: 26px;
+      font-size: 28px;
       font-weight: 800;
-      color: var(--red);
+      letter-spacing: -0.5px;
       line-height: 1;
-      margin-bottom: 4px;
+      margin-bottom: 8px;
     }
-    .stat-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.12em; }
+    .stat-val.url { font-size: 14px; font-family: var(--mono); color: var(--text-soft); word-break: break-all; }
+    .stat-label { font-size: 12px; color: var(--muted); font-weight: 500; }
 
     /* confirm dialog */
     .confirm-overlay {
       display: none;
       position: fixed;
       inset: 0;
-      background: rgba(0,0,0,0.7);
+      background: rgba(8,10,15,0.72);
+      backdrop-filter: blur(4px);
       z-index: 100;
       align-items: center;
       justify-content: center;
+      padding: 24px;
     }
     .confirm-overlay.show { display: flex; }
     .confirm-box {
       background: var(--surface);
       border: 1px solid var(--border-bright);
-      border-radius: 8px;
+      border-radius: 16px;
       padding: 32px;
-      width: 340px;
+      width: 380px;
+      max-width: 100%;
       text-align: center;
+      box-shadow: var(--shadow);
     }
-    .confirm-box h3 { font-family: var(--display); font-size: 18px; margin-bottom: 10px; }
-    .confirm-box p { color: var(--muted); font-size: 12px; margin-bottom: 24px; }
+    .confirm-box h3 { font-size: 18px; font-weight: 700; margin-bottom: 10px; }
+    .confirm-box p { color: var(--text-soft); font-size: 13px; margin-bottom: 24px; }
     .confirm-actions { display: flex; gap: 10px; justify-content: center; }
 
     /* ── Developer Docs ── */
@@ -442,66 +453,72 @@
       justify-content: space-between;
       background: var(--surface);
       border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 18px 24px;
+      border-radius: var(--radius);
+      padding: 20px 24px;
       cursor: pointer;
       transition: border-color 0.2s;
-      font-family: var(--mono);
+      font-family: var(--sans);
       color: var(--text);
     }
     .docs-toggle:hover { border-color: var(--border-bright); }
-    .docs-toggle-title {
-      font-family: var(--display);
+    .docs-toggle-left { display: flex; align-items: center; gap: 12px; }
+    .docs-toggle-icon {
+      width: 34px; height: 34px;
+      border-radius: 9px;
+      background: var(--accent-soft);
+      color: var(--accent-bright);
+      display: flex; align-items: center; justify-content: center;
       font-size: 16px;
-      font-weight: 700;
     }
+    .docs-toggle-title { font-size: 15px; font-weight: 700; }
+    .docs-toggle-sub { font-size: 12px; color: var(--muted); margin-top: 1px; }
     .docs-toggle-arrow {
-      font-size: 14px;
+      font-size: 13px;
       color: var(--muted);
       transition: transform 0.25s;
     }
     .docs-toggle.open .docs-toggle-arrow { transform: rotate(180deg); }
-    .docs-toggle.open { border-radius: 8px 8px 0 0; border-bottom-color: transparent; }
+    .docs-toggle.open { border-radius: var(--radius) var(--radius) 0 0; border-bottom-color: transparent; }
 
     .docs-body {
       display: none;
       background: var(--surface);
       border: 1px solid var(--border);
       border-top: none;
-      border-radius: 0 0 8px 8px;
-      padding: 32px 28px 36px;
+      border-radius: 0 0 var(--radius) var(--radius);
+      padding: 36px 28px 36px;
     }
     .docs-body.open { display: block; }
 
     .docs-step {
       position: relative;
-      padding-left: 40px;
-      margin-bottom: 32px;
+      padding-left: 44px;
+      margin-bottom: 34px;
     }
-    .docs-step:last-child { margin-bottom: 0; }
+    .docs-step:last-of-type { margin-bottom: 0; }
     .docs-step::before {
       content: '';
       position: absolute;
-      left: 13px;
-      top: 28px;
-      bottom: -32px;
-      width: 1px;
+      left: 15px;
+      top: 30px;
+      bottom: -34px;
+      width: 2px;
       background: var(--border);
     }
-    .docs-step:last-child::before { display: none; }
+    .docs-step:last-of-type::before { display: none; }
 
     .step-num {
       position: absolute;
       left: 0;
       top: 0;
-      width: 28px;
-      height: 28px;
-      border-radius: 50%;
-      background: var(--red-dim);
-      border: 1px solid rgba(255,60,60,0.3);
-      color: var(--red);
-      font-size: 12px;
-      font-weight: 600;
+      width: 32px;
+      height: 32px;
+      border-radius: 10px;
+      background: var(--accent-soft);
+      border: 1px solid rgba(99,102,241,0.3);
+      color: var(--accent-bright);
+      font-size: 14px;
+      font-weight: 700;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -509,47 +526,54 @@
     }
 
     .step-title {
-      font-family: var(--display);
-      font-size: 14px;
+      font-size: 15px;
       font-weight: 700;
       margin-bottom: 8px;
-      line-height: 28px;
+      line-height: 32px;
     }
     .step-desc {
-      font-size: 12px;
-      color: var(--muted);
+      font-size: 13.5px;
+      color: var(--text-soft);
       line-height: 1.7;
-      margin-bottom: 12px;
+      margin-bottom: 14px;
+    }
+    .step-desc code {
+      font-family: var(--mono);
+      font-size: 12.5px;
+      background: var(--bg-soft);
+      padding: 1px 6px;
+      border-radius: 5px;
     }
 
     .code-block {
-      background: var(--bg);
+      background: var(--bg-soft);
       border: 1px solid var(--border);
-      border-radius: 6px;
-      padding: 14px 16px;
+      border-radius: 10px;
+      padding: 16px 18px;
       font-family: var(--mono);
-      font-size: 12px;
+      font-size: 12.5px;
       color: var(--text);
       overflow-x: auto;
-      line-height: 1.7;
+      line-height: 1.8;
       position: relative;
     }
     .code-block .cm { color: var(--muted); }
     .code-block .cs { color: var(--green); }
-    .code-block .cv { color: var(--yellow); }
-    .code-block .ck { color: var(--red); }
+    .code-block .cv { color: var(--amber); }
+    .code-block .ck { color: var(--accent-bright); }
 
     .code-block-copy {
       position: absolute;
-      top: 8px;
-      right: 8px;
-      background: var(--surface);
+      top: 10px;
+      right: 10px;
+      background: var(--surface-2);
       border: 1px solid var(--border);
-      border-radius: 4px;
-      color: var(--muted);
-      font-family: var(--mono);
-      font-size: 10px;
-      padding: 4px 8px;
+      border-radius: 6px;
+      color: var(--text-soft);
+      font-family: var(--sans);
+      font-size: 11px;
+      font-weight: 500;
+      padding: 5px 10px;
       cursor: pointer;
       transition: all 0.15s;
     }
@@ -559,13 +583,13 @@
     .docs-divider {
       border: none;
       border-top: 1px solid var(--border);
-      margin: 28px 0;
+      margin: 30px 0;
     }
 
     .endpoint-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 8px;
+      gap: 10px;
       margin-top: 8px;
     }
     @media (max-width: 600px) {
@@ -573,26 +597,31 @@
     }
 
     .ep-card {
-      background: var(--bg);
+      background: var(--bg-soft);
       border: 1px solid var(--border);
-      border-radius: 6px;
-      padding: 12px 14px;
-      font-size: 12px;
+      border-radius: 10px;
+      padding: 13px 15px;
+      font-size: 12.5px;
+      transition: border-color 0.15s;
     }
+    .ep-card:hover { border-color: var(--border-bright); }
     .ep-method {
       display: inline-block;
       font-size: 10px;
-      font-weight: 600;
-      letter-spacing: 0.08em;
-      padding: 2px 6px;
-      border-radius: 3px;
-      margin-right: 6px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      padding: 3px 7px;
+      border-radius: 5px;
+      margin-right: 7px;
+      font-family: var(--mono);
     }
-    .ep-method.get { background: rgba(0,232,122,0.12); color: var(--green); }
-    .ep-method.post { background: rgba(100,140,255,0.12); color: #8cacff; }
-    .ep-method.delete { background: var(--red-dim); color: var(--red); }
-    .ep-path { color: var(--text); }
-    .ep-desc { color: var(--muted); font-size: 11px; margin-top: 4px; }
+    .ep-method.get { background: var(--green-soft); color: var(--green); }
+    .ep-method.post { background: var(--accent-soft); color: var(--accent-bright); }
+    .ep-method.delete { background: var(--rose-soft); color: #fb7185; }
+    .ep-path { color: var(--text); font-family: var(--mono); font-size: 12px; }
+    .ep-desc { color: var(--muted); font-size: 11.5px; margin-top: 5px; }
+
+    .group-label { font-size: 13px; color: var(--text); font-weight: 600; margin-bottom: 10px; }
   </style>
 </head>
 <body>
@@ -600,16 +629,15 @@
 <!-- ── Admin lock screen ── -->
 <div id="lock-screen">
   <div class="lock-box">
-    <div class="lock-title">Redis<span style="color:var(--red)">SaaS</span></div>
-    <div class="lock-subtitle">ADMIN PANEL — ENTER PASSWORD</div>
+    <div class="lock-mark">🔒</div>
+    <div class="lock-title">Redis<span style="color:var(--accent-bright)">SaaS</span></div>
+    <div class="lock-subtitle">Enter your admin password to continue</div>
     <label for="admin-pw">Admin Password</label>
     <div class="pw-wrap">
       <input type="password" id="admin-pw" placeholder="••••••••••••" autocomplete="current-password" />
       <button class="pw-toggle" onclick="togglePw('admin-pw',this)">👁</button>
     </div>
-    <button class="btn btn-primary" onclick="unlock()" style="margin-top:14px;width:100%;justify-content:center;">
-      Unlock →
-    </button>
+    <button class="btn btn-primary" onclick="unlock()">Unlock →</button>
     <div class="lock-err" id="lock-err"></div>
   </div>
 </div>
@@ -632,10 +660,11 @@
 <!-- ── Main content ── -->
 <div class="wrap">
   <header>
-    <div>
-      <div class="logo">Redis<span>SaaS</span> Admin</div>
-      <div style="font-size:11px;color:var(--muted);margin-top:6px;letter-spacing:0.06em;">
-        MULTI-TENANT CONTROL PANEL
+    <div class="brand">
+      <div class="brand-mark">⬢</div>
+      <div>
+        <div class="logo">Redis<span>SaaS</span> Admin</div>
+        <div class="logo-sub">Multi-Tenant Control Panel</div>
       </div>
     </div>
     <div class="health-badge">
@@ -653,7 +682,7 @@
   <!-- Stats -->
   <div class="stats">
     <div class="stat">
-      <div class="stat-val">{{ projects | length }}</div>
+      <div class="stat-val" style="color:var(--accent-bright)">{{ projects | length }}</div>
       <div class="stat-label">Total Projects</div>
     </div>
     <div class="stat">
@@ -661,7 +690,7 @@
       <div class="stat-label">Redis Connected</div>
     </div>
     <div class="stat">
-      <div class="stat-val" style="color:var(--yellow);font-size:18px;">{{ base_url }}</div>
+      <div class="stat-val url">{{ base_url }}</div>
       <div class="stat-label">API Base URL</div>
     </div>
   </div>
@@ -676,22 +705,22 @@
           <label for="project_id">Project ID</label>
           <input type="text" id="project_id" name="project_id"
                  placeholder="e.g. my_app" autocomplete="off" />
-          <div class="hint">lowercase, underscores only</div>
+          <div class="hint">Lowercase letters and underscores only</div>
         </div>
         <div>
           <label for="api_key">API Key</label>
           <div class="pw-wrap">
             <input type="text" id="api_key" name="api_key"
-                   placeholder="auto-generated if empty" autocomplete="off" />
+                   placeholder="Auto-generated if empty" autocomplete="off" />
           </div>
-          <button type="button" class="gen-btn" onclick="generateKey()">⟳ generate random key</button>
+          <button type="button" class="gen-btn" onclick="generateKey()">⟳ Generate random key</button>
         </div>
       </div>
       <div class="actions">
         <button type="button" class="btn btn-primary" onclick="submitAdd()">
           + Add Project
         </button>
-        <span style="font-size:11px;color:var(--muted);">Key will be shown once — save it!</span>
+        <span class="note">The key is shown once — copy and save it.</span>
       </div>
     </form>
   </div>
@@ -703,17 +732,20 @@
       {% for proj in projects %}
       <div class="project-row">
         <div>
-          <div class="proj-id">{{ proj.id }}</div>
+          <div class="proj-head">
+            <div class="proj-avatar">{{ proj.id[0] }}</div>
+            <div class="proj-id">{{ proj.id }}</div>
+          </div>
           <div class="proj-meta">
             <div class="proj-key">
-              Key:&nbsp;
-              <code id="key-{{ proj.id }}" class="key-masked">
-                {{- proj.key[:6] + '••••••••••••••••' + proj.key[-4:] if proj.key|length > 10 else proj.key -}}
+              Key
+              <code id="key-{{ proj.id }}">
+                {{- proj.key[:6] + '••••••••••' + proj.key[-4:] if proj.key|length > 10 else proj.key -}}
               </code>
               <button class="copy-btn" onclick="copyKey('{{ proj.key }}', this)" title="Copy key">⎘</button>
             </div>
             <div class="proj-url">
-              URL: <a href="{{ base_url }}/{{ proj.id }}" target="_blank">{{ base_url }}/{{ proj.id }}</a>
+              <a href="{{ base_url }}/{{ proj.id }}" target="_blank">{{ base_url }}/{{ proj.id }}</a>
             </div>
           </div>
         </div>
@@ -725,7 +757,7 @@
     {% else %}
       <div class="empty">
         <big>⬡</big>
-        No projects yet. Add one above.
+        No projects yet. Add one above to get started.
       </div>
     {% endif %}
   </div>
@@ -734,7 +766,13 @@
   <div class="docs-section">
     <div class="section-label">Developer Documentation</div>
     <button class="docs-toggle" id="docs-toggle" onclick="toggleDocs()">
-      <span class="docs-toggle-title">Getting Started &amp; API Reference</span>
+      <div class="docs-toggle-left">
+        <div class="docs-toggle-icon">📘</div>
+        <div>
+          <div class="docs-toggle-title">Getting Started &amp; API Reference</div>
+          <div class="docs-toggle-sub">Connect and start using the service in minutes</div>
+        </div>
+      </div>
       <span class="docs-toggle-arrow">▼</span>
     </button>
     <div class="docs-body" id="docs-body">
@@ -745,8 +783,8 @@
         <div class="step-title">Create a Project</div>
         <div class="step-desc">
           Use the <strong style="color:var(--text)">Add New Project</strong> form above to register your app.
-          Enter a unique Project ID (lowercase, underscores only). An API key will be auto-generated if left blank.
-          <strong style="color:var(--yellow)">Copy and save your API key immediately</strong> — it is shown only once.
+          Enter a unique Project ID (lowercase, underscores only). An API key is auto-generated if left blank.
+          <strong style="color:var(--amber)">Copy and save your API key immediately</strong> — it is shown only once.
         </div>
       </div>
 
@@ -756,7 +794,7 @@
         <div class="step-title">Authenticate Your Requests</div>
         <div class="step-desc">
           Every API call requires your <strong style="color:var(--text)">Project ID</strong> in the URL path and your
-          <strong style="color:var(--text)">API Key</strong> in the <code style="color:var(--yellow)">x-api-key</code> header.
+          <strong style="color:var(--text)">API Key</strong> in the <code>x-api-key</code> header.
         </div>
         <div class="code-block">
           <button class="code-block-copy" onclick="copyBlock(this)">Copy</button>
@@ -831,13 +869,13 @@
       <hr class="docs-divider" />
 
       <!-- API Reference -->
-      <div class="step-title" style="margin-bottom:6px;">API Reference</div>
-      <div class="step-desc" style="margin-bottom:16px;">
-        All endpoints require the <code style="color:var(--yellow)">x-api-key</code> header.
-        Replace <code style="color:var(--yellow)">{pid}</code> with your Project ID and <code style="color:var(--yellow)">{key}</code> with your Redis key.
+      <div class="step-title" style="margin-bottom:6px;line-height:1.3;">API Reference</div>
+      <div class="step-desc" style="margin-bottom:18px;">
+        All endpoints require the <code>x-api-key</code> header.
+        Replace <code>{pid}</code> with your Project ID and <code>{key}</code> with your Redis key.
       </div>
 
-      <div class="step-desc" style="margin-bottom:8px;color:var(--text);font-weight:600;">String Operations</div>
+      <div class="group-label">String Operations</div>
       <div class="endpoint-grid">
         <div class="ep-card">
           <span class="ep-method get">GET</span>
@@ -847,7 +885,7 @@
         <div class="ep-card">
           <span class="ep-method post">POST</span>
           <span class="ep-path">/{pid}/set/{key}</span>
-          <div class="ep-desc">Set a value &bull; Body: {"value", "ttl?"}</div>
+          <div class="ep-desc">Set a value · Body: {"value", "ttl?"}</div>
         </div>
         <div class="ep-card">
           <span class="ep-method delete">DEL</span>
@@ -857,26 +895,26 @@
         <div class="ep-card">
           <span class="ep-method post">POST</span>
           <span class="ep-path">/{pid}/incr/{key}</span>
-          <div class="ep-desc">Increment &bull; Body: {"by": 1}</div>
+          <div class="ep-desc">Increment · Body: {"by": 1}</div>
         </div>
         <div class="ep-card">
           <span class="ep-method post">POST</span>
           <span class="ep-path">/{pid}/mset</span>
-          <div class="ep-desc">Set multiple &bull; Body: {"pairs", "ttl?"}</div>
+          <div class="ep-desc">Set multiple · Body: {"pairs", "ttl?"}</div>
         </div>
         <div class="ep-card">
           <span class="ep-method post">POST</span>
           <span class="ep-path">/{pid}/mget</span>
-          <div class="ep-desc">Get multiple &bull; Body: ["key1","key2"]</div>
+          <div class="ep-desc">Get multiple · Body: ["key1","key2"]</div>
         </div>
       </div>
 
-      <div class="step-desc" style="margin-top:20px;margin-bottom:8px;color:var(--text);font-weight:600;">Key Utilities</div>
+      <div class="group-label" style="margin-top:22px;">Key Utilities</div>
       <div class="endpoint-grid">
         <div class="ep-card">
           <span class="ep-method post">POST</span>
           <span class="ep-path">/{pid}/expire/{key}</span>
-          <div class="ep-desc">Set TTL &bull; Body: {"ttl": seconds}</div>
+          <div class="ep-desc">Set TTL · Body: {"ttl": seconds}</div>
         </div>
         <div class="ep-card">
           <span class="ep-method get">GET</span>
@@ -895,22 +933,22 @@
         </div>
       </div>
 
-      <div class="step-desc" style="margin-top:20px;margin-bottom:8px;color:var(--text);font-weight:600;">List Operations</div>
+      <div class="group-label" style="margin-top:22px;">List Operations</div>
       <div class="endpoint-grid">
         <div class="ep-card">
           <span class="ep-method post">POST</span>
           <span class="ep-path">/{pid}/lpush/{key}</span>
-          <div class="ep-desc">Push left &bull; Body: {"values": [...]}</div>
+          <div class="ep-desc">Push left · Body: {"values": [...]}</div>
         </div>
         <div class="ep-card">
           <span class="ep-method post">POST</span>
           <span class="ep-path">/{pid}/rpush/{key}</span>
-          <div class="ep-desc">Push right &bull; Body: {"values": [...]}</div>
+          <div class="ep-desc">Push right · Body: {"values": [...]}</div>
         </div>
         <div class="ep-card">
           <span class="ep-method get">GET</span>
           <span class="ep-path">/{pid}/lrange/{key}</span>
-          <div class="ep-desc">Get range &bull; Query: ?start=0&end=-1</div>
+          <div class="ep-desc">Get range · Query: ?start=0&end=-1</div>
         </div>
         <div class="ep-card">
           <span class="ep-method delete">DEL</span>
@@ -924,12 +962,12 @@
         </div>
       </div>
 
-      <div class="step-desc" style="margin-top:20px;margin-bottom:8px;color:var(--text);font-weight:600;">Hash Operations</div>
+      <div class="group-label" style="margin-top:22px;">Hash Operations</div>
       <div class="endpoint-grid">
         <div class="ep-card">
           <span class="ep-method post">POST</span>
           <span class="ep-path">/{pid}/hset/{key}</span>
-          <div class="ep-desc">Set fields &bull; Body: {"mapping": {...}}</div>
+          <div class="ep-desc">Set fields · Body: {"mapping": {...}}</div>
         </div>
         <div class="ep-card">
           <span class="ep-method get">GET</span>
@@ -950,7 +988,7 @@
 
       <hr class="docs-divider" />
 
-      <div class="step-title" style="margin-bottom:6px;">Health &amp; Status</div>
+      <div class="group-label">Health &amp; Status</div>
       <div class="endpoint-grid">
         <div class="ep-card">
           <span class="ep-method get">GET</span>
