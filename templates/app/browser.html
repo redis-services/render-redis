@@ -1,0 +1,392 @@
+{% extends "partials/shell.html" %}
+{% from "partials/icons.html" import icon %}
+{% block title %}Data Browser — {{ project.id }}{% endblock %}
+{% block page_title %}Data Browser{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Data Browser</h1>
+    <p class="muted small" style="margin:4px 0 0">Keys are scanned with a cursor, so large keyspaces stay responsive.</p>
+  </div>
+  <div class="row">
+    <button class="btn btn-secondary" id="refresh">{{ icon('refresh', 15) }} Refresh</button>
+    <button class="btn btn-primary" id="new-key-btn">{{ icon('plus', 15) }} New key</button>
+  </div>
+</div>
+
+<div class="row wrap" style="margin-bottom:16px;gap:10px">
+  <div style="position:relative;width:380px;max-width:100%">
+    <input class="input mono" id="pattern" placeholder="Filter by pattern — e.g. cart:*" style="padding-left:34px" />
+    <span style="position:absolute;left:11px;top:11px;color:var(--text-3)">{{ icon('search', 16) }}</span>
+  </div>
+  <select class="select" id="type-filter" style="width:150px">
+    <option value="all">All types</option>
+    <option value="string">String</option>
+    <option value="list">List</option>
+    <option value="hash">Hash</option>
+    <option value="set">Set</option>
+  </select>
+  <span class="grow"></span>
+  <span class="small dim mono" id="key-count"></span>
+</div>
+
+<div class="browser">
+  <div class="card">
+    <div class="key-list" id="key-list">
+      <div class="card-body small dim">Loading…</div>
+    </div>
+    <div style="padding:10px;border-top:1px solid var(--border)">
+      <button class="btn btn-ghost btn-sm btn-block" id="load-more">Load more</button>
+    </div>
+  </div>
+
+  <div class="card" id="detail">
+    <div class="card-body">
+      <div class="empty empty-sm">
+        <span class="empty-icon">{{ icon('database', 34) }}</span>
+        <p class="small">Select a key to inspect its value.</p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block modals %}
+<div class="overlay hidden" id="editor">
+  <div class="modal modal-lg">
+    <div class="modal-head">
+      <h2 id="editor-title">Edit key</h2>
+      <button class="btn btn-ghost btn-icon" data-modal-close="editor">{{ icon('x', 16) }}</button>
+    </div>
+    <div class="modal-body">
+      <div class="field">
+        <label>Type</label>
+        <div class="segmented" id="editor-type">
+          <button data-type="string" class="active">String</button>
+          <button data-type="list">List</button>
+          <button data-type="hash">Hash</button>
+          <button data-type="set">Set</button>
+        </div>
+      </div>
+      <div class="field">
+        <label for="editor-key">Key</label>
+        <div class="row" style="gap:0">
+          <span class="mono small dim" style="background:var(--bg);border:1px solid var(--border-strong);border-right:none;border-radius:var(--radius) 0 0 var(--radius);padding:0 10px;height:40px;display:flex;align-items:center">{{ project.id }}:</span>
+          <input class="input mono" id="editor-key" style="border-radius:0 var(--radius) var(--radius) 0" placeholder="cart:1042" />
+        </div>
+      </div>
+      <div class="field">
+        <div class="row-between">
+          <label for="editor-value">Value</label>
+          <span class="small" id="editor-valid"></span>
+        </div>
+        <textarea class="textarea mono" id="editor-value" rows="9" spellcheck="false" placeholder='{"hello": "world"}'></textarea>
+        <span class="help" id="editor-hint">JSON is stored as JSON. Anything that doesn't parse is stored as a raw string.</span>
+      </div>
+      <div class="field">
+        <label>TTL</label>
+        <div class="row">
+          <input class="input" type="number" id="editor-ttl" min="0" placeholder="0" style="width:120px" />
+          <select class="select" id="editor-ttl-unit" style="width:130px">
+            <option value="1">seconds</option>
+            <option value="60" selected>minutes</option>
+            <option value="3600">hours</option>
+            <option value="86400">days</option>
+          </select>
+          <label class="checkbox-row" style="margin-left:8px">
+            <input type="checkbox" id="editor-no-ttl" checked /> No expiry
+          </label>
+        </div>
+      </div>
+      <div class="alert alert-err hidden" id="editor-error"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-danger left hidden" id="editor-delete">Delete key</button>
+      <button class="btn btn-secondary" data-modal-close="editor">Cancel</button>
+      <button class="btn btn-primary" id="editor-save">Save changes</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const projectId = "{{ project.id }}";
+  let cursor = 0;
+  let done = false;
+  let selected = null;
+  let entries = [];
+  let editorMode = "create";
+
+  const list = document.getElementById("key-list");
+  const detail = document.getElementById("detail");
+  const loadMore = document.getElementById("load-more");
+
+  function typeBadge(entry) {
+    return '<span class="type-badge ' + Central.typeClass(entry.type) + '">' + entry.type_label + "</span>";
+  }
+
+  function renderList() {
+    if (!entries.length) {
+      list.innerHTML =
+        '<div class="card-body"><div class="empty empty-sm"><p class="small">No keys match this filter.</p></div></div>';
+      return;
+    }
+    list.innerHTML = entries
+      .map(function (entry, index) {
+        return (
+          '<div class="key-row' + (selected === entry.key ? " selected" : "") + '" data-index="' + index + '">' +
+          typeBadge(entry) +
+          '<span class="name" title="' + Central.escape(entry.key) + '">' + Central.escape(entry.key) + "</span>" +
+          '<span class="ttl">' + Central.formatTtl(entry.ttl) + "</span>" +
+          "</div>"
+        );
+      })
+      .join("");
+  }
+
+  async function load(reset) {
+    if (reset) {
+      cursor = 0;
+      done = false;
+      entries = [];
+      list.innerHTML = '<div class="card-body small dim">Loading…</div>';
+    }
+    const pattern = document.getElementById("pattern").value.trim() || "*";
+    const type = document.getElementById("type-filter").value;
+    try {
+      const data = await Central.api(
+        "/api/projects/" + projectId + "/browse?pattern=" + encodeURIComponent(pattern) +
+        "&cursor=" + cursor + "&limit=50&type=" + type
+      );
+      entries = entries.concat(data.keys);
+      cursor = data.cursor;
+      done = data.done;
+      renderList();
+      document.getElementById("key-count").textContent =
+        entries.length + " key" + (entries.length === 1 ? "" : "s") + (done ? "" : " (more available)");
+      loadMore.classList.toggle("hidden", done);
+    } catch (err) {
+      list.innerHTML = '<div class="card-body"><div class="alert alert-err">' + Central.escape(err.message) + "</div></div>";
+    }
+  }
+
+  function renderValue(entry) {
+    if (entry.type === "list") {
+      return (
+        '<table class="table"><thead><tr><th style="width:70px">Index</th><th>Value</th></tr></thead><tbody>' +
+        entry.value
+          .map(function (item, index) {
+            return '<tr><td class="mono dim">' + index + '</td><td class="mono">' + Central.escape(JSON.stringify(item)) + "</td></tr>";
+          })
+          .join("") +
+        "</tbody></table>"
+      );
+    }
+    if (entry.type === "hash") {
+      return (
+        '<table class="table"><thead><tr><th style="width:180px">Field</th><th>Value</th></tr></thead><tbody>' +
+        Object.entries(entry.value)
+          .map(function (pair) {
+            return '<tr><td class="mono">' + Central.escape(pair[0]) + '</td><td class="mono">' + Central.escape(JSON.stringify(pair[1])) + "</td></tr>";
+          })
+          .join("") +
+        "</tbody></table>"
+      );
+    }
+    return '<div class="card-body"><div class="json-view">' + Central.highlightJson(entry.value) + "</div></div>";
+  }
+
+  async function select(key) {
+    selected = key;
+    renderList();
+    detail.innerHTML = '<div class="card-body small dim">Loading…</div>';
+    try {
+      const entry = await Central.api("/api/projects/" + projectId + "/keys/" + encodeURIComponent(key));
+      detail.innerHTML =
+        '<div class="card-head">' +
+        '<div class="row"><span class="type-badge ' + Central.typeClass(entry.type) + '">' + entry.type_label + "</span>" +
+        '<span class="mono" style="font-weight:600">' + Central.escape(entry.key) + "</span></div>" +
+        '<div class="row" style="gap:4px">' +
+        '<button class="btn btn-ghost btn-icon" data-copy="' + Central.escape(entry.key) + '" data-copy-label="Key" title="Copy key">{{ icon("copy", 14) }}</button>' +
+        '<button class="btn btn-ghost btn-sm" id="edit-btn">Edit</button>' +
+        '<button class="btn btn-danger btn-sm" id="delete-btn">Delete</button>' +
+        "</div></div>" +
+        '<div class="meta-strip">' +
+        '<span class="item"><span class="label">Type</span><b>' + entry.type + "</b></span>" +
+        '<span class="item"><span class="label">Size</span><b>' + Central.formatBytes(entry.size) + "</b></span>" +
+        '<span class="item"><span class="label">TTL</span><b>' + Central.formatTtl(entry.ttl) + "</b></span>" +
+        "</div>" +
+        renderValue(entry);
+
+      document.getElementById("edit-btn").addEventListener("click", function () { openEditor(entry); });
+      document.getElementById("delete-btn").addEventListener("click", function () { removeKey(entry.key); });
+    } catch (err) {
+      detail.innerHTML = '<div class="card-body"><div class="alert alert-err">' + Central.escape(err.message) + "</div></div>";
+    }
+  }
+
+  async function removeKey(key) {
+    if (!confirm("Delete " + key + "? This cannot be undone.")) return;
+    try {
+      await Central.api("/api/projects/" + projectId + "/keys/" + encodeURIComponent(key), { method: "DELETE" });
+      Central.toast("Key deleted");
+      selected = null;
+      detail.innerHTML = '<div class="card-body"><div class="empty empty-sm"><p class="small">Select a key to inspect its value.</p></div></div>';
+      load(true);
+    } catch (err) {
+      Central.toast(err.message, "err");
+    }
+  }
+
+  // ── Editor ──────────────────────────────────────────────────────────────
+
+  function currentType() {
+    return document.querySelector("#editor-type button.active").getAttribute("data-type");
+  }
+
+  function setType(type) {
+    document.querySelectorAll("#editor-type button").forEach(function (button) {
+      button.classList.toggle("active", button.getAttribute("data-type") === type);
+    });
+    const hints = {
+      string: 'Any JSON value, or a plain string.',
+      list: 'A JSON array — each element becomes a list item.',
+      hash: 'A JSON object — each property becomes a hash field.',
+      set: 'A JSON array — duplicates are collapsed.',
+    };
+    document.getElementById("editor-hint").textContent = hints[type];
+  }
+
+  function openEditor(entry) {
+    editorMode = entry ? "edit" : "create";
+    document.getElementById("editor-title").textContent = entry ? "Edit key" : "New key";
+    document.getElementById("editor-key").value = entry ? entry.key : "";
+    document.getElementById("editor-key").disabled = Boolean(entry);
+    document.getElementById("editor-value").value = entry ? JSON.stringify(entry.value, null, 2) : "";
+    document.getElementById("editor-delete").classList.toggle("hidden", !entry);
+    document.getElementById("editor-error").classList.add("hidden");
+    setType(entry ? entry.type : "string");
+
+    const noTtl = document.getElementById("editor-no-ttl");
+    const ttlInput = document.getElementById("editor-ttl");
+    if (entry && entry.ttl) {
+      noTtl.checked = false;
+      ttlInput.value = entry.ttl;
+      document.getElementById("editor-ttl-unit").value = "1";
+    } else {
+      noTtl.checked = true;
+      ttlInput.value = "";
+    }
+    ttlInput.disabled = noTtl.checked;
+    Central.openModal("editor");
+  }
+
+  document.getElementById("editor-type").addEventListener("click", function (event) {
+    const button = event.target.closest("button[data-type]");
+    if (button) setType(button.getAttribute("data-type"));
+  });
+
+  document.getElementById("editor-no-ttl").addEventListener("change", function () {
+    document.getElementById("editor-ttl").disabled = this.checked;
+  });
+
+  document.getElementById("editor-value").addEventListener("input", function () {
+    const badge = document.getElementById("editor-valid");
+    if (!this.value.trim()) { badge.textContent = ""; return; }
+    try {
+      JSON.parse(this.value);
+      badge.textContent = "Valid JSON";
+      badge.style.color = "var(--success)";
+    } catch (err) {
+      badge.textContent = "Stored as raw string";
+      badge.style.color = "var(--text-3)";
+    }
+  });
+
+  document.getElementById("editor-save").addEventListener("click", async function () {
+    const key = document.getElementById("editor-key").value.trim();
+    const raw = document.getElementById("editor-value").value;
+    const errorBox = document.getElementById("editor-error");
+    errorBox.classList.add("hidden");
+
+    if (!key) {
+      errorBox.textContent = "Enter a key name.";
+      errorBox.classList.remove("hidden");
+      return;
+    }
+
+    let value;
+    try {
+      value = JSON.parse(raw);
+    } catch (err) {
+      value = raw;
+    }
+
+    const type = currentType();
+    if ((type === "list" || type === "set") && !Array.isArray(value)) {
+      errorBox.textContent = "A " + type + " needs a JSON array.";
+      errorBox.classList.remove("hidden");
+      return;
+    }
+    if (type === "hash" && (typeof value !== "object" || value === null || Array.isArray(value))) {
+      errorBox.textContent = "A hash needs a JSON object.";
+      errorBox.classList.remove("hidden");
+      return;
+    }
+
+    let ttl = null;
+    if (!document.getElementById("editor-no-ttl").checked) {
+      const amount = parseInt(document.getElementById("editor-ttl").value, 10);
+      const unit = parseInt(document.getElementById("editor-ttl-unit").value, 10);
+      if (amount > 0) ttl = amount * unit;
+    }
+
+    this.disabled = true;
+    try {
+      await Central.api("/api/projects/" + projectId + "/keys/" + encodeURIComponent(key), {
+        method: "PUT",
+        body: { type: type, value: value, ttl: ttl },
+      });
+      Central.closeModal("editor");
+      Central.toast(editorMode === "create" ? "Key created" : "Key saved");
+      await load(true);
+      select(key);
+    } catch (err) {
+      errorBox.textContent = err.message;
+      errorBox.classList.remove("hidden");
+    } finally {
+      this.disabled = false;
+    }
+  });
+
+  document.getElementById("editor-delete").addEventListener("click", function () {
+    const key = document.getElementById("editor-key").value.trim();
+    Central.closeModal("editor");
+    removeKey(key);
+  });
+
+  // ── Wiring ──────────────────────────────────────────────────────────────
+
+  list.addEventListener("click", function (event) {
+    const row = event.target.closest(".key-row");
+    if (row) select(entries[Number(row.getAttribute("data-index"))].key);
+  });
+
+  document.getElementById("new-key-btn").addEventListener("click", function () { openEditor(null); });
+  document.getElementById("refresh").addEventListener("click", function () { load(true); });
+  loadMore.addEventListener("click", function () { load(false); });
+  document.getElementById("type-filter").addEventListener("change", function () { load(true); });
+
+  let debounce;
+  document.getElementById("pattern").addEventListener("input", function () {
+    clearTimeout(debounce);
+    debounce = setTimeout(function () { load(true); }, 280);
+  });
+
+  load(true);
+})();
+</script>
+{% endblock %}

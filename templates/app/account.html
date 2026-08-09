@@ -1,0 +1,136 @@
+{% extends "partials/shell.html" %}
+{% from "partials/icons.html" import icon %}
+{% block title %}Account — Central{% endblock %}
+{% block page_title %}Account{% endblock %}
+
+{% block content %}
+<div class="page-head"><h1>Account</h1></div>
+
+<div class="stack" style="max-width:720px">
+  <form class="card" method="post" action="/account/profile">
+    <div class="card-head"><h2>Profile</h2></div>
+    <div class="card-body stack">
+      <div class="row" style="gap:14px">
+        <div class="avatar" style="width:56px;height:56px;font-size:20px">{{ (user.name or user.email)[:1] | upper }}</div>
+        <div class="grow">
+          <div class="field">
+            <label for="ac-name">Name</label>
+            <input class="input" id="ac-name" name="name" value="{{ user.name }}" />
+          </div>
+        </div>
+      </div>
+      <div class="field">
+        <label>Email</label>
+        <input class="input" value="{{ user.email }}" disabled />
+        <span class="help">Email changes aren't supported yet.</span>
+      </div>
+    </div>
+    <div class="card-foot"><button class="btn btn-primary" type="submit">Save</button></div>
+  </form>
+
+  <form class="card" method="post" action="/account/password">
+    <div class="card-head"><h2>Password</h2></div>
+    <div class="card-body stack">
+      <div class="field">
+        <label for="ac-current">Current password</label>
+        <input class="input" type="password" id="ac-current" name="current_password" required autocomplete="current-password" />
+      </div>
+      <div class="field">
+        <label for="ac-new">New password</label>
+        <input class="input" type="password" id="ac-new" name="new_password" required minlength="10" autocomplete="new-password" />
+        <div class="strength" id="strength"><i></i><i></i><i></i></div>
+      </div>
+      <div class="field">
+        <label for="ac-confirm">Confirm new password</label>
+        <input class="input" type="password" id="ac-confirm" name="confirm_password" required autocomplete="new-password" />
+      </div>
+      <p class="help" style="margin:0">Changing your password signs out every other session.</p>
+    </div>
+    <div class="card-foot"><button class="btn btn-primary" type="submit">Update password</button></div>
+  </form>
+
+  <div class="card">
+    <div class="card-head">
+      <h2>Active sessions</h2>
+      <form method="post" action="/account/sessions/revoke-others">
+        <button class="btn btn-ghost btn-sm" style="color:var(--danger)" type="submit">Sign out of all others</button>
+      </form>
+    </div>
+    <table class="table">
+      <thead><tr><th>Device</th><th>Location</th><th>Last active</th><th></th></tr></thead>
+      <tbody>
+        {% for session in sessions %}
+        <tr>
+          <td>
+            {{ session.device }}
+            {% if session.is_current %}<span class="badge badge-success" style="margin-left:6px">This device</span>{% endif %}
+          </td>
+          <td class="mono small dim">{{ session.ip or '—' }}</td>
+          <td class="small dim">{{ session.last_seen_at | ago }}</td>
+          <td class="right">
+            {% if not session.is_current %}
+            <form method="post" action="/account/sessions/revoke">
+              <input type="hidden" name="token_hash" value="{{ session.token_hash }}" />
+              <button class="btn btn-ghost btn-sm" style="color:var(--danger)" type="submit">Revoke</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card card-danger">
+    <div class="card-head"><h2>Danger zone</h2></div>
+    <div class="card-body">
+      <div class="row-between">
+        <div>
+          <div style="font-weight:600">Delete account</div>
+          <div class="small muted">
+            Permanently delete your account, {{ project_count }} project{{ '' if project_count == 1 else 's' }}, and all stored data.
+          </div>
+        </div>
+        <button class="btn btn-danger" data-modal-open="delete-account">Delete account</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block modals %}
+<div class="overlay hidden" id="delete-account">
+  <form class="modal modal-danger" method="post" action="/account/delete">
+    <div class="modal-body">
+      <div class="row" style="align-items:flex-start;gap:12px">
+        <span style="width:40px;height:40px;border-radius:50%;background:var(--danger-bg);color:var(--danger);display:flex;align-items:center;justify-content:center;flex:none">{{ icon('alert', 20) }}</span>
+        <div>
+          <h2>Delete your account?</h2>
+          <p class="small muted" style="margin:6px 0 0">
+            This deletes {{ project_count }} project{{ '' if project_count == 1 else 's' }} and every key inside them.
+            Any service using your API keys will start failing immediately. This cannot be undone.
+          </p>
+        </div>
+      </div>
+      <div class="field">
+        <label for="da-email">Type your email to confirm</label>
+        <input class="input mono" id="da-email" name="confirm_email" placeholder="{{ user.email }}" autocomplete="off" required />
+      </div>
+      <div class="field">
+        <label for="da-password">Password</label>
+        <input class="input" type="password" id="da-password" name="password" required />
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-secondary" type="button" data-modal-close="delete-account">Cancel</button>
+      <button class="btn btn-danger-solid" type="submit">Delete account</button>
+    </div>
+  </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  Central.bindStrengthMeter(document.getElementById("ac-new"), document.getElementById("strength"));
+</script>
+{% endblock %}

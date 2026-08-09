@@ -17,3 +17,4 @@ dist-ssr
 frontend/central-redis-platform/node_modules
 frontend/central-redis-platform/dist
 frontend/central-redis-platform/.wrangler
+.pytest_cache

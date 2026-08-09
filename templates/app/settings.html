@@ -1,0 +1,109 @@
+{% extends "partials/shell.html" %}
+{% from "partials/icons.html" import icon %}
+{% block title %}Settings — {{ project.id }}{% endblock %}
+{% block page_title %}Settings{% endblock %}
+
+{% block content %}
+<div class="page-head"><h1>Settings</h1></div>
+
+<div class="stack" style="max-width:720px">
+  <div class="card">
+    <div class="card-head"><h2>Project details</h2></div>
+    <div class="card-body stack">
+      <div class="field">
+        <label for="set-name">Display name</label>
+        <input class="input" id="set-name" value="{{ project.name }}" />
+      </div>
+      <div class="field">
+        <label for="set-id">Project ID</label>
+        <input class="input mono" id="set-id" value="{{ project.id }}" disabled />
+        <span class="help">
+          The project ID is part of your API URL and can't be changed. Create a new project if you need a different ID.
+        </span>
+      </div>
+      <div class="field">
+        <label for="set-description">Description</label>
+        <textarea class="textarea" id="set-description" rows="3" placeholder="What is this project for?">{{ project.description }}</textarea>
+      </div>
+    </div>
+    <div class="card-foot">
+      <button class="btn btn-primary" id="save-details">Save</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><h2>Data retention</h2></div>
+    <div class="card-body stack">
+      <div class="field">
+        <label>Default TTL</label>
+        <div class="row">
+          <input class="input" type="number" id="set-ttl" min="0"
+                 value="{{ project.settings.default_ttl or '' }}" placeholder="0" style="width:130px" />
+          <span class="small muted">seconds</span>
+        </div>
+        <span class="help">Existing keys are not affected.</span>
+      </div>
+      <label class="checkbox-row">
+        <input type="checkbox" id="set-apply-ttl" {{ 'checked' if project.settings.apply_default_ttl }} />
+        <span>
+          Apply to keys created without an explicit TTL
+          <span class="help" style="display:block">
+            Applies to keys written from the dashboard. The API always honours the TTL in the request body.
+          </span>
+        </span>
+      </label>
+    </div>
+    <div class="card-foot">
+      <button class="btn btn-primary" id="save-retention">Save</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><h2>Storage</h2></div>
+    <div class="card-body">
+      <div class="grid grid-3">
+        <div><div class="label">Keys</div><div class="mono" style="font-size:20px">{{ stats["keys"] | count }}</div></div>
+        <div><div class="label">Memory</div><div class="mono" style="font-size:20px">{{ stats.bytes | bytes }}</div></div>
+        <div><div class="label">Created</div><div class="small" style="padding-top:5px">{{ project.created_at | ago }}</div></div>
+      </div>
+      <p class="help" style="margin-top:14px">
+        To flush or delete this project, go to <a href="/app/{{ project.id }}/keys">API Keys → Danger zone</a>.
+      </p>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const projectId = "{{ project.id }}";
+
+  async function patch(body, button) {
+    button.disabled = true;
+    try {
+      await Central.api("/api/projects/" + projectId, { method: "PATCH", body: body });
+      Central.toast("Saved");
+    } catch (err) {
+      Central.toast(err.message, "err");
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  document.getElementById("save-details").addEventListener("click", function () {
+    patch({
+      name: document.getElementById("set-name").value,
+      description: document.getElementById("set-description").value,
+    }, this);
+  });
+
+  document.getElementById("save-retention").addEventListener("click", function () {
+    patch({
+      default_ttl: parseInt(document.getElementById("set-ttl").value, 10) || 0,
+      apply_default_ttl: document.getElementById("set-apply-ttl").checked,
+    }, this);
+  });
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,246 @@
+{% extends "partials/shell.html" %}
+{% from "partials/icons.html" import icon, copy_button %}
+{% block title %}{{ project.id }} — Central{% endblock %}
+{% block page_title %}Overview{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1 class="mono">{{ project.id }}</h1>
+    <p class="muted small" style="margin:6px 0 0">
+      {{ project.description or 'No description yet.' }}
+    </p>
+  </div>
+  <div class="row">
+    <a href="/app/{{ project.id }}/console" class="btn btn-secondary">{{ icon('terminal', 15) }} Open API Console</a>
+  </div>
+</div>
+
+<div class="stack">
+  <!-- Connection -->
+  <div class="card">
+    <div class="card-head"><h2>Connection</h2></div>
+    <div class="card-body stack" style="gap:12px">
+      <div class="row" style="align-items:flex-start">
+        <div class="label" style="width:110px;flex:none;padding-top:8px">Base URL</div>
+        <span class="copyable grow">
+          <span class="truncate">{{ project_base_url }}</span>
+          {{ copy_button(project_base_url, 'Base URL') }}
+        </span>
+      </div>
+      <div class="row" style="align-items:flex-start">
+        <div class="label" style="width:110px;flex:none;padding-top:8px">API key</div>
+        <span class="copyable grow">
+          <span class="truncate">{{ api_keys[0].masked if api_keys else 'No key' }}</span>
+          <a href="/app/{{ project.id }}/keys" class="btn btn-ghost btn-sm">Manage</a>
+        </span>
+      </div>
+
+      <div style="margin-top:6px">
+        <div class="code-tabs">
+          <button class="code-tab active" data-tab="curl" data-tab-group="snippet">cURL</button>
+          <button class="code-tab" data-tab="js" data-tab-group="snippet">JavaScript</button>
+          <button class="code-tab" data-tab="py" data-tab-group="snippet">Python</button>
+        </div>
+
+        <div data-tab-panel="curl" data-tab-panel-group="snippet" style="margin-top:12px">
+          <div class="code"><button class="copy-btn" data-copy='curl -X POST {{ project_base_url }}/set/cart:42 -H "x-api-key: $CENTRAL_KEY" -H "Content-Type: application/json" -d "{\"value\": {\"items\": 3}, \"ttl\": 3600}"' data-copy-label="Snippet">Copy</button><span class="tok-cmd">curl</span> -X POST {{ project_base_url }}/set/cart:42 \
+  -H <span class="tok-str">"x-api-key: $CENTRAL_KEY"</span> \
+  -H <span class="tok-str">"Content-Type: application/json"</span> \
+  -d <span class="tok-str">'{"value": {"items": 3}, "ttl": 3600}'</span></div>
+        </div>
+
+        <div data-tab-panel="js" data-tab-panel-group="snippet" class="hidden" style="margin-top:12px">
+          <div class="code"><span class="tok-key">const</span> res = <span class="tok-key">await</span> fetch(
+  <span class="tok-str">"{{ project_base_url }}/set/cart:42"</span>,
+  {
+    method: <span class="tok-str">"POST"</span>,
+    headers: {
+      <span class="tok-str">"x-api-key"</span>: process.env.CENTRAL_KEY,
+      <span class="tok-str">"Content-Type"</span>: <span class="tok-str">"application/json"</span>
+    },
+    body: JSON.stringify({ value: { items: <span class="tok-key">3</span> }, ttl: <span class="tok-key">3600</span> })
+  }
+);</div>
+        </div>
+
+        <div data-tab-panel="py" data-tab-panel-group="snippet" class="hidden" style="margin-top:12px">
+          <div class="code"><span class="tok-key">import</span> os, requests
+
+requests.post(
+    <span class="tok-str">"{{ project_base_url }}/set/cart:42"</span>,
+    headers={<span class="tok-str">"x-api-key"</span>: os.environ[<span class="tok-str">"CENTRAL_KEY"</span>]},
+    json={<span class="tok-str">"value"</span>: {<span class="tok-str">"items"</span>: 3}, <span class="tok-str">"ttl"</span>: 3600},
+)</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Stats -->
+  <div class="grid grid-4">
+    <div class="card stat">
+      <div class="label">Total keys</div>
+      <div class="value" id="stat-keys">{{ stats["keys"] | count }}</div>
+      <div class="delta dim">{{ 'approximate' if stats.truncated else 'exact count' }}</div>
+    </div>
+    <div class="card stat">
+      <div class="label">Memory used</div>
+      <div class="value" id="stat-bytes">{{ stats.bytes | bytes }}</div>
+      <div class="delta dim">{{ 'estimated' if not stats.exact else 'measured' }}</div>
+    </div>
+    <div class="card stat">
+      <div class="label">Requests 24h</div>
+      <div class="value" id="stat-requests">—</div>
+      <div class="delta dim" id="stat-requests-sub">loading</div>
+    </div>
+    <div class="card stat">
+      <div class="label">Error rate</div>
+      <div class="value" id="stat-errors">—</div>
+      <div class="delta dim" id="stat-errors-sub">loading</div>
+    </div>
+  </div>
+
+  <!-- Charts -->
+  <div class="grid" style="grid-template-columns:1.5fr 1fr">
+    <div class="card">
+      <div class="card-head">
+        <h2>Requests</h2>
+        <div class="segmented" id="range-picker">
+          <button class="active" data-range="24h">24h</button>
+          <button data-range="7d">7d</button>
+          <button data-range="30d">30d</button>
+        </div>
+      </div>
+      <div class="card-body">
+        <div id="requests-chart" style="height:200px"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h2>Operations</h2></div>
+      <div class="card-body" id="ops-list">
+        <div class="small dim">Loading…</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Activity -->
+  <div class="card">
+    <div class="card-head">
+      <h2>Recent activity</h2>
+      <button class="btn btn-ghost btn-sm" id="refresh-activity">{{ icon('refresh', 14) }} Refresh</button>
+    </div>
+    <div id="activity-wrap">
+      <div class="card-body small dim">Loading…</div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const projectId = "{{ project.id }}";
+  let currentRange = "24h";
+
+  function statusBadge(code) {
+    const cls = code < 300 ? "badge-success" : code < 500 ? "badge-warning" : "badge-danger";
+    return '<span class="badge ' + cls + '">' + code + "</span>";
+  }
+
+  function methodBadge(method) {
+    const map = { GET: "badge-info", POST: "badge-success", DELETE: "badge-danger" };
+    return '<span class="badge ' + (map[method] || "") + '">' + Central.escape(method) + "</span>";
+  }
+
+  async function loadUsage() {
+    try {
+      const data = await Central.api("/api/projects/" + projectId + "/usage?range=" + currentRange);
+      const summary = data.summary;
+
+      document.getElementById("stat-requests").textContent = Central.formatCount(summary.requests);
+      document.getElementById("stat-requests-sub").textContent =
+        summary.avg_ms ? summary.avg_ms + " ms average" : "no traffic yet";
+      document.getElementById("stat-errors").textContent = summary.error_rate + "%";
+      document.getElementById("stat-errors-sub").textContent =
+        summary.errors + " error" + (summary.errors === 1 ? "" : "s");
+
+      const labels = data.series.map(function (point) {
+        const when = new Date(point.at);
+        return currentRange === "24h"
+          ? when.getHours() + ":00"
+          : when.toLocaleDateString([], { month: "short", day: "numeric" });
+      });
+      Central.areaChart(
+        document.getElementById("requests-chart"),
+        [{ values: data.series.map(function (p) { return p.requests; }), color: "#DC382D" }],
+        labels
+      );
+
+      const operations = Object.entries(summary.operations).slice(0, 8);
+      const maximum = operations.length ? operations[0][1] : 1;
+      document.getElementById("ops-list").innerHTML = operations.length
+        ? operations
+            .map(function (entry) {
+              const width = Math.max(2, (entry[1] / maximum) * 100);
+              return (
+                '<div class="bar-row">' +
+                '<span class="name">' + Central.escape(entry[0]) + "</span>" +
+                '<span class="track"><i style="width:' + width + '%"></i></span>' +
+                '<span class="num">' + Central.formatCount(entry[1]) + "</span>" +
+                "</div>"
+              );
+            })
+            .join("")
+        : '<div class="empty-sm empty"><p class="small">No requests recorded in this window.</p></div>';
+    } catch (err) {
+      Central.toast(err.message, "err");
+    }
+  }
+
+  async function loadActivity() {
+    try {
+      const data = await Central.api("/api/projects/" + projectId + "/activity?limit=8");
+      const wrap = document.getElementById("activity-wrap");
+      if (!data.activity.length) {
+        wrap.innerHTML =
+          '<div class="card-body"><div class="empty empty-sm"><p class="small">Nothing yet. Make a request and it will show up here.</p></div></div>';
+        return;
+      }
+      wrap.innerHTML =
+        '<table class="table"><thead><tr><th>Time</th><th>Method</th><th>Endpoint</th><th>Status</th><th class="right">Duration</th></tr></thead><tbody>' +
+        data.activity
+          .map(function (entry) {
+            return (
+              "<tr><td class=\"mono dim\">" + Central.formatTime(entry.t) + "</td>" +
+              "<td>" + methodBadge(entry.m) + "</td>" +
+              '<td class="mono truncate" style="max-width:280px">' + Central.escape(entry.p) + "</td>" +
+              "<td>" + statusBadge(entry.s) + "</td>" +
+              '<td class="mono right">' + entry.d + " ms</td></tr>"
+            );
+          })
+          .join("") +
+        "</tbody></table>";
+    } catch (err) {
+      Central.toast(err.message, "err");
+    }
+  }
+
+  document.getElementById("range-picker").addEventListener("click", function (event) {
+    const button = event.target.closest("button[data-range]");
+    if (!button) return;
+    currentRange = button.getAttribute("data-range");
+    this.querySelectorAll("button").forEach(function (node) {
+      node.classList.toggle("active", node === button);
+    });
+    loadUsage();
+  });
+
+  document.getElementById("refresh-activity").addEventListener("click", loadActivity);
+
+  loadUsage();
+  loadActivity();
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,242 @@
+{% extends "partials/shell.html" %}
+{% from "partials/icons.html" import icon %}
+{% block title %}API Keys — {{ project.id }}{% endblock %}
+{% block page_title %}API Keys{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>API Keys</h1>
+    <p class="muted small" style="margin:4px 0 0">
+      Keys grant full read and write access to <span class="mono">{{ project.id }}</span>. Treat them like passwords.
+    </p>
+  </div>
+  <button class="btn btn-primary" data-modal-open="new-key">{{ icon('plus', 15) }} Create key</button>
+</div>
+
+<div class="card">
+  <div id="keys-table"><div class="card-body small dim">Loading…</div></div>
+</div>
+
+<div class="card card-danger" style="margin-top:22px">
+  <div class="card-head"><h2>Danger zone</h2></div>
+  <div class="card-body stack" style="gap:0">
+    <div class="row-between" style="padding:6px 0">
+      <div>
+        <div style="font-weight:600">Flush all data</div>
+        <div class="small muted">
+          Permanently delete all {{ stats["keys"] | count }} keys in this project. The project and its API keys are kept.
+        </div>
+      </div>
+      <button class="btn btn-danger" id="flush-btn">Flush project</button>
+    </div>
+    <div style="height:1px;background:var(--border);margin:12px 0"></div>
+    <div class="row-between" style="padding:6px 0">
+      <div>
+        <div style="font-weight:600">Delete project</div>
+        <div class="small muted">
+          Permanently delete <span class="mono">{{ project.id }}</span>, all of its data, and all of its API keys.
+        </div>
+      </div>
+      <button class="btn btn-danger" data-modal-open="delete-project">Delete project</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block modals %}
+<div class="overlay hidden" id="new-key">
+  <div class="modal">
+    <div class="modal-head">
+      <h2>Create API key</h2>
+      <button class="btn btn-ghost btn-icon" data-modal-close="new-key">{{ icon('x', 16) }}</button>
+    </div>
+    <div class="modal-body">
+      <div class="field">
+        <label for="nk-name">Name</label>
+        <input class="input" id="nk-name" placeholder="Production" />
+        <span class="help">Names are for you — they help you work out which service to update when you rotate.</span>
+      </div>
+      <div class="alert alert-err hidden" id="nk-error"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-secondary" data-modal-close="new-key">Cancel</button>
+      <button class="btn btn-primary" id="nk-submit">Create key</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay hidden" id="key-reveal">
+  <div class="modal">
+    <div class="modal-head"><h2 id="kr-title">Save your API key</h2></div>
+    <div class="modal-body">
+      <div class="alert alert-warn"><span>This is the only time the full key is shown. Store it somewhere safe before closing.</span></div>
+      <span class="copyable" style="width:100%">
+        <span id="kr-key" class="grow"></span>
+        <button type="button" class="btn btn-ghost btn-icon" id="kr-copy">{{ icon('copy', 14) }}</button>
+      </span>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-primary" data-modal-close="key-reveal" id="kr-done">I've saved it</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay hidden" id="delete-project">
+  <div class="modal modal-danger">
+    <div class="modal-body">
+      <div class="row" style="align-items:flex-start;gap:12px">
+        <span style="width:40px;height:40px;border-radius:50%;background:var(--danger-bg);color:var(--danger);display:flex;align-items:center;justify-content:center;flex:none">{{ icon('alert', 20) }}</span>
+        <div>
+          <h2>Delete {{ project.id }}?</h2>
+          <p class="small muted" style="margin:6px 0 0">
+            This deletes the project, all {{ stats["keys"] | count }} keys, and every API key.
+            Any service still using those keys will start receiving 404s immediately. This cannot be undone.
+          </p>
+        </div>
+      </div>
+      <div class="field">
+        <label for="dp-confirm">Type the project ID to confirm</label>
+        <input class="input mono" id="dp-confirm" placeholder="{{ project.id }}" autocomplete="off" />
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-secondary" data-modal-close="delete-project">Cancel</button>
+      <button class="btn btn-danger-solid" id="dp-submit" disabled>Delete project</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const projectId = "{{ project.id }}";
+
+  function revealKey(key, title) {
+    document.getElementById("kr-title").textContent = title;
+    document.getElementById("kr-key").textContent = key;
+    const copy = document.getElementById("kr-copy");
+    copy.setAttribute("data-copy", key);
+    copy.setAttribute("data-copy-label", "API key");
+    Central.openModal("key-reveal");
+  }
+
+  async function loadKeys() {
+    const wrap = document.getElementById("keys-table");
+    try {
+      const data = await Central.api("/api/projects/" + projectId + "/api-keys");
+      if (!data.api_keys.length) {
+        wrap.innerHTML = '<div class="card-body"><div class="empty empty-sm"><p class="small">No keys yet.</p></div></div>';
+        return;
+      }
+      wrap.innerHTML =
+        '<table class="table"><thead><tr><th>Name</th><th>Key</th><th>Created</th><th>Last used</th><th></th></tr></thead><tbody>' +
+        data.api_keys.map(function (record) {
+          const unused = !record.last_used_at;
+          return (
+            "<tr><td>" + Central.escape(record.name) + "</td>" +
+            '<td class="mono dim">' + Central.escape(record.masked) + "</td>" +
+            '<td class="small dim">' + new Date(record.created_at).toLocaleDateString() + "</td>" +
+            '<td class="small ' + (unused ? "" : "dim") + '" style="' + (unused ? "color:var(--warning)" : "") + '">' +
+              (unused ? "never" : new Date(record.last_used_at).toLocaleString()) + "</td>" +
+            '<td class="right nowrap">' +
+              '<button class="btn btn-ghost btn-sm" data-rotate="' + record.id + '">Rotate</button>' +
+              '<button class="btn btn-ghost btn-sm" data-revoke="' + record.id + '" style="color:var(--danger)">Revoke</button>' +
+            "</td></tr>"
+          );
+        }).join("") +
+        "</tbody></table>";
+    } catch (err) {
+      wrap.innerHTML = '<div class="card-body"><div class="alert alert-err">' + Central.escape(err.message) + "</div></div>";
+    }
+  }
+
+  document.getElementById("nk-submit").addEventListener("click", async function () {
+    const errorBox = document.getElementById("nk-error");
+    errorBox.classList.add("hidden");
+    this.disabled = true;
+    try {
+      const result = await Central.api("/api/projects/" + projectId + "/api-keys", {
+        method: "POST",
+        body: { name: document.getElementById("nk-name").value || "Untitled key" },
+      });
+      Central.closeModal("new-key");
+      document.getElementById("nk-name").value = "";
+      revealKey(result.api_key, "Save your API key");
+      loadKeys();
+    } catch (err) {
+      errorBox.textContent = err.message;
+      errorBox.classList.remove("hidden");
+    } finally {
+      this.disabled = false;
+    }
+  });
+
+  document.getElementById("keys-table").addEventListener("click", async function (event) {
+    const rotate = event.target.closest("[data-rotate]");
+    const revoke = event.target.closest("[data-revoke]");
+
+    if (rotate) {
+      if (!confirm("Rotate this key? The current value stops working immediately.")) return;
+      try {
+        const result = await Central.api(
+          "/api/projects/" + projectId + "/api-keys/" + rotate.getAttribute("data-rotate") + "/rotate",
+          { method: "POST" }
+        );
+        revealKey(result.api_key, "Your new API key");
+        loadKeys();
+      } catch (err) {
+        Central.toast(err.message, "err");
+      }
+      return;
+    }
+
+    if (revoke) {
+      if (!confirm("Revoke this key permanently? Any service using it will start failing.")) return;
+      try {
+        await Central.api(
+          "/api/projects/" + projectId + "/api-keys/" + revoke.getAttribute("data-revoke"),
+          { method: "DELETE" }
+        );
+        Central.toast("Key revoked");
+        loadKeys();
+      } catch (err) {
+        Central.toast(err.message, "err");
+      }
+    }
+  });
+
+  document.getElementById("flush-btn").addEventListener("click", async function () {
+    if (!confirm("Delete every key in " + projectId + "? This cannot be undone.")) return;
+    this.disabled = true;
+    try {
+      const result = await Central.api("/api/projects/" + projectId + "/flush", { method: "POST" });
+      Central.toast(result.deleted + " keys deleted");
+      setTimeout(function () { location.reload(); }, 900);
+    } catch (err) {
+      Central.toast(err.message, "err");
+      this.disabled = false;
+    }
+  });
+
+  const confirmInput = document.getElementById("dp-confirm");
+  const confirmButton = document.getElementById("dp-submit");
+  confirmInput.addEventListener("input", function () {
+    confirmButton.disabled = this.value.trim() !== projectId;
+  });
+  confirmButton.addEventListener("click", async function () {
+    this.disabled = true;
+    try {
+      await Central.api("/api/projects/" + projectId, { method: "DELETE" });
+      location.href = "/app?msg=Project+deleted&msg_type=ok";
+    } catch (err) {
+      Central.toast(err.message, "err");
+      this.disabled = false;
+    }
+  });
+
+  loadKeys();
+})();
+</script>
+{% endblock %}

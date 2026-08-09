@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% from "partials/icons.html" import icon, logo, copy_button, flash %}
+
+{% block body %}
+<div class="shell">
+  <aside class="sidebar">
+    <a href="/app" class="sidebar-brand">{{ logo(22) }} Central</a>
+
+    <div class="project-switch">
+      <button type="button" class="project-switch-btn" onclick="document.getElementById('project-menu').classList.toggle('hidden')">
+        <span class="truncate">{{ project.id if project else 'No project selected' }}</span>
+        {{ icon('chevron', 14) }}
+      </button>
+      <div class="project-menu hidden" id="project-menu">
+        {% for item in projects %}
+          <a href="/app/{{ item.id }}" class="{{ 'current' if project and item.id == project.id else '' }}">{{ item.id }}</a>
+        {% else %}
+          <div class="small muted" style="padding:8px 10px">No projects yet</div>
+        {% endfor %}
+        <div class="sep"></div>
+        <a href="/app" style="font-family:var(--sans)">All projects →</a>
+      </div>
+    </div>
+
+    <nav class="nav">
+      {% if project %}
+        <a href="/app/{{ project.id }}" class="{{ 'active' if active == 'overview' }}">{{ icon('gauge') }} Overview</a>
+        <a href="/app/{{ project.id }}/browser" class="{{ 'active' if active == 'browser' }}">{{ icon('database') }} Data Browser</a>
+        <a href="/app/{{ project.id }}/console" class="{{ 'active' if active == 'console' }}">{{ icon('terminal') }} API Console</a>
+        <a href="/app/{{ project.id }}/keys" class="{{ 'active' if active == 'keys' }}">{{ icon('key') }} API Keys</a>
+        <a href="/app/{{ project.id }}/usage" class="{{ 'active' if active == 'usage' }}">{{ icon('chart') }} Usage</a>
+        <a href="/app/{{ project.id }}/settings" class="{{ 'active' if active == 'settings' }}">{{ icon('settings') }} Settings</a>
+        <div class="sep" style="height:1px;background:var(--border);margin:8px 10px"></div>
+      {% endif %}
+      <a href="/app" class="{{ 'active' if active == 'projects' }}">{{ icon('grid') }} All projects</a>
+    </nav>
+
+    <div class="sidebar-foot">
+      <div class="avatar">{{ (user.name or user.email)[:1] | upper }}</div>
+      <div class="grow truncate">
+        <div class="small truncate" style="font-weight:500">{{ user.name or user.email.split('@')[0] }}</div>
+        <div class="tiny dim truncate">{{ user.email }}</div>
+      </div>
+      <a href="/account" class="btn btn-ghost btn-icon" title="Account settings">{{ icon('user', 15) }}</a>
+    </div>
+  </aside>
+
+  <div class="main">
+    <header class="topbar">
+      <div class="topbar-title">{% block page_title %}{% endblock %}</div>
+      <div class="row">
+        {% if project %}
+        <span class="copyable small" title="{{ project_base_url }}">
+          <span class="dim">base</span>
+          <span>{{ project_base_url }}</span>
+          {{ copy_button(project_base_url, 'Base URL') }}
+        </span>
+        {% endif %}
+        <a href="/api/docs" target="_blank" rel="noopener" class="btn btn-ghost btn-sm">{{ icon('book', 14) }} Docs</a>
+        <form method="post" action="/logout" style="display:inline">
+          <button type="submit" class="btn btn-ghost btn-icon" title="Sign out">{{ icon('logout', 15) }}</button>
+        </form>
+      </div>
+    </header>
+
+    <main class="content">
+      {{ flash(message, message_type) }}
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+</div>
+
+<div class="toasts"></div>
+{% block modals %}{% endblock %}
+{% endblock %}

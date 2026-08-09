@@ -1,0 +1,270 @@
+{% extends "partials/shell.html" %}
+{% from "partials/icons.html" import icon %}
+{% block title %}API Console — {{ project.id }}{% endblock %}
+{% block page_title %}API Console{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>API Console</h1>
+    <p class="muted small" style="margin:4px 0 0">
+      Requests run against <span class="mono">{{ project.id }}</span> for real and count toward your usage.
+    </p>
+  </div>
+</div>
+
+<div class="grid grid-2" style="align-items:start">
+  <!-- Request -->
+  <div class="card">
+    <div class="card-body stack" style="gap:14px">
+      <div class="row" style="gap:8px">
+        <span class="badge" id="method-badge" style="height:36px;padding:0 12px;font-size:12px">POST</span>
+        <div class="row grow" style="gap:0">
+          <span class="mono small dim" style="background:var(--bg);border:1px solid var(--border-strong);border-right:none;border-radius:var(--radius) 0 0 var(--radius);padding:0 9px;height:36px;display:flex;align-items:center">/{{ project.id }}</span>
+          <input class="input mono input-sm" id="path-preview" readonly style="height:36px;border-radius:0 var(--radius) var(--radius) 0;background:var(--surface)" />
+        </div>
+        <button class="btn btn-primary" id="send">{{ icon('send', 15) }} Send</button>
+      </div>
+
+      <div class="stack" style="gap:10px" id="op-groups"></div>
+
+      <div class="grid grid-2" style="gap:10px">
+        <div class="field">
+          <label for="op-key">Key</label>
+          <input class="input mono input-sm" id="op-key" placeholder="cart:1042" />
+        </div>
+        <div class="field" id="field-wrap" style="display:none">
+          <label for="op-field">Field</label>
+          <input class="input mono input-sm" id="op-field" placeholder="status" />
+        </div>
+      </div>
+
+      <div>
+        <div class="tabs">
+          <button class="tab active" data-tab="body" data-tab-group="req">Body</button>
+          <button class="tab" data-tab="headers" data-tab-group="req">Headers</button>
+        </div>
+
+        <div data-tab-panel="body" data-tab-panel-group="req" style="margin-top:12px">
+          <textarea class="textarea mono" id="op-body" rows="9" spellcheck="false"></textarea>
+          <span class="help" id="body-hint"></span>
+        </div>
+
+        <div data-tab-panel="headers" data-tab-panel-group="req" class="hidden" style="margin-top:12px">
+          <table class="table">
+            <tbody>
+              <tr><td class="mono">x-api-key</td><td class="mono dim">•••••••••••• (injected)</td></tr>
+              <tr><td class="mono">Content-Type</td><td class="mono dim">application/json</td></tr>
+            </tbody>
+          </table>
+          <p class="help" style="margin-top:8px">
+            The console authenticates with your session, not an API key — the server never stores your key in plaintext.
+            The cURL tab shows the request as an external client would send it.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Response -->
+  <div class="card">
+    <div class="card-head">
+      <div class="row" id="status-bar"><span class="small dim">No request sent yet</span></div>
+    </div>
+    <div class="card-body">
+      <div class="tabs">
+        <button class="tab active" data-tab="response" data-tab-group="res">Response</button>
+        <button class="tab" data-tab="curl" data-tab-group="res">cURL</button>
+      </div>
+
+      <div data-tab-panel="response" data-tab-panel-group="res" style="margin-top:12px">
+        <div class="json-view" id="response-view"><span class="dim">Send a request to see the response.</span></div>
+      </div>
+
+      <div data-tab-panel="curl" data-tab-panel-group="res" class="hidden" style="margin-top:12px">
+        <div class="code" id="curl-view"><button class="copy-btn" id="curl-copy">Copy</button><span class="dim">Choose an operation.</span></div>
+      </div>
+    </div>
+
+    <div class="card-head" style="border-top:1px solid var(--border);border-bottom:none">
+      <h2 style="font-size:14px">History</h2>
+      <span class="badge" id="history-count">0</span>
+    </div>
+    <div id="history"></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const projectId = "{{ project.id }}";
+  const baseUrl = "{{ project_base_url }}";
+  let specs = {};
+  let operation = "set";
+  const history = [];
+
+  const bodyTemplates = {
+    set: '{\n  "value": {"items": 3},\n  "ttl": 3600\n}',
+    expire: '{\n  "ttl": 3600\n}',
+    incr: '{\n  "by": 1\n}',
+    mset: '{\n  "pairs": {"a": 1, "b": 2},\n  "ttl": 600\n}',
+    mget: '{\n  "keys": ["a", "b"]\n}',
+    lpush: '{\n  "values": ["first", "second"]\n}',
+    rpush: '{\n  "values": ["first", "second"]\n}',
+    lrange: '{\n  "start": 0,\n  "end": -1\n}',
+    hset: '{\n  "mapping": {"status": "paid"}\n}',
+    sadd: '{\n  "members": ["a", "b"]\n}',
+    srem: '{\n  "members": ["a"]\n}',
+    keys: '{\n  "pattern": "*",\n  "limit": 50\n}',
+    scan: '{\n  "pattern": "*",\n  "limit": 50\n}',
+  };
+
+  function methodClass(method) {
+    return { GET: "badge-info", POST: "badge-success", DELETE: "badge-danger" }[method] || "";
+  }
+
+  function renderPath() {
+    const spec = specs[operation];
+    if (!spec) return;
+    const key = document.getElementById("op-key").value.trim() || (spec.needs_key ? "{key}" : "");
+    const field = document.getElementById("op-field").value.trim() || "{field}";
+    const path = spec.path.replace("{key}", key).replace("{field}", field);
+    document.getElementById("path-preview").value = path;
+
+    const badge = document.getElementById("method-badge");
+    badge.textContent = spec.method;
+    badge.className = "badge " + methodClass(spec.method);
+
+    document.getElementById("field-wrap").style.display = spec.path.indexOf("{field}") >= 0 ? "" : "none";
+    document.getElementById("op-key").parentElement.style.display = spec.needs_key ? "" : "none";
+
+    const body = document.getElementById("op-body").value.trim();
+    let curl = "curl -X " + spec.method + " " + baseUrl + path + " \\\n  -H \"x-api-key: $CENTRAL_KEY\"";
+    if (body && spec.method !== "GET" && spec.method !== "DELETE") {
+      curl += " \\\n  -H \"Content-Type: application/json\" \\\n  -d '" + body.replace(/\n\s*/g, " ") + "'";
+    }
+    const view = document.getElementById("curl-view");
+    view.innerHTML = '<button class="copy-btn" id="curl-copy">Copy</button>' + Central.escape(curl);
+    document.getElementById("curl-copy").setAttribute("data-copy", curl);
+    document.getElementById("curl-copy").setAttribute("data-copy-label", "cURL command");
+  }
+
+  function selectOperation(name) {
+    operation = name;
+    document.querySelectorAll("#op-groups .chip").forEach(function (chip) {
+      chip.classList.toggle("active", chip.getAttribute("data-op") === name);
+    });
+    document.getElementById("op-body").value = bodyTemplates[name] || "";
+    document.getElementById("body-hint").textContent = bodyTemplates[name]
+      ? "" : "This operation takes no body.";
+    renderPath();
+  }
+
+  async function loadOperations() {
+    const data = await Central.api("/api/console/operations");
+    specs = data.specs;
+    document.getElementById("op-groups").innerHTML = Object.entries(data.groups)
+      .map(function (entry) {
+        return (
+          '<div><div class="label" style="margin-bottom:6px">' + entry[0] + "</div>" +
+          '<div class="chips">' +
+          entry[1].map(function (name) {
+            return '<button class="chip" data-op="' + name + '">' + name + "</button>";
+          }).join("") +
+          "</div></div>"
+        );
+      })
+      .join("");
+    selectOperation("set");
+  }
+
+  function renderHistory() {
+    document.getElementById("history-count").textContent = String(history.length);
+    document.getElementById("history").innerHTML = history.length
+      ? '<table class="table"><tbody>' +
+        history.slice(0, 10).map(function (item, index) {
+          const cls = item.status < 300 ? "badge-success" : item.status < 500 ? "badge-warning" : "badge-danger";
+          return (
+            '<tr><td><span class="badge ' + methodClass(item.method) + '">' + item.method + "</span></td>" +
+            '<td class="mono truncate" style="max-width:190px">' + Central.escape(item.path) + "</td>" +
+            '<td><span class="badge ' + cls + '">' + item.status + "</span></td>" +
+            '<td class="mono right dim">' + item.duration_ms + " ms</td>" +
+            '<td class="right"><button class="btn btn-ghost btn-sm" data-replay="' + index + '">Replay</button></td></tr>'
+          );
+        }).join("") +
+        "</tbody></table>"
+      : '<div class="card-body"><p class="small dim" style="margin:0">Nothing sent yet.</p></div>';
+  }
+
+  async function send() {
+    const button = document.getElementById("send");
+    const raw = document.getElementById("op-body").value.trim();
+    let body = {};
+    if (raw) {
+      try {
+        body = JSON.parse(raw);
+      } catch (err) {
+        Central.toast("Request body is not valid JSON", "err");
+        return;
+      }
+    }
+
+    button.disabled = true;
+    try {
+      const result = await Central.api("/api/projects/" + projectId + "/console", {
+        method: "POST",
+        body: {
+          operation: operation,
+          key: document.getElementById("op-key").value.trim(),
+          field: document.getElementById("op-field").value.trim(),
+          body: body,
+        },
+      });
+
+      const cls = result.status < 300 ? "badge-success" : result.status < 500 ? "badge-warning" : "badge-danger";
+      document.getElementById("status-bar").innerHTML =
+        '<span class="badge ' + cls + '">' + result.status + "</span>" +
+        '<span class="small dim mono">· ' + result.duration_ms + " ms</span>";
+      document.getElementById("response-view").innerHTML = Central.highlightJson(result.result);
+
+      history.unshift({
+        method: result.method, path: result.path,
+        status: result.status, duration_ms: result.duration_ms,
+        operation: operation, key: document.getElementById("op-key").value.trim(), body: body,
+      });
+      renderHistory();
+    } catch (err) {
+      document.getElementById("status-bar").innerHTML =
+        '<span class="badge badge-danger">error</span><span class="small dim">' + Central.escape(err.message) + "</span>";
+      Central.toast(err.message, "err");
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  document.getElementById("op-groups").addEventListener("click", function (event) {
+    const chip = event.target.closest(".chip");
+    if (chip) selectOperation(chip.getAttribute("data-op"));
+  });
+
+  document.getElementById("history").addEventListener("click", function (event) {
+    const button = event.target.closest("[data-replay]");
+    if (!button) return;
+    const item = history[Number(button.getAttribute("data-replay"))];
+    selectOperation(item.operation);
+    document.getElementById("op-key").value = item.key;
+    document.getElementById("op-body").value = JSON.stringify(item.body, null, 2);
+    renderPath();
+    send();
+  });
+
+  ["op-key", "op-field", "op-body"].forEach(function (id) {
+    document.getElementById(id).addEventListener("input", renderPath);
+  });
+  document.getElementById("send").addEventListener("click", send);
+
+  loadOperations().then(renderHistory).catch(function (err) { Central.toast(err.message, "err"); });
+})();
+</script>
+{% endblock %}

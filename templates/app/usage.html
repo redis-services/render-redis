@@ -1,0 +1,180 @@
+{% extends "partials/shell.html" %}
+{% from "partials/icons.html" import icon %}
+{% block title %}Usage — {{ project.id }}{% endblock %}
+{% block page_title %}Usage{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div><h1>Usage</h1></div>
+  <div class="segmented" id="range-picker">
+    <button data-range="24h">24h</button>
+    <button class="active" data-range="7d">7d</button>
+    <button data-range="30d">30d</button>
+  </div>
+</div>
+
+<div class="stack">
+  <div class="card">
+    <div class="card-head">
+      <div class="row"><h2>Plan limits</h2><span class="badge badge-brand">Beta — free</span></div>
+    </div>
+    <div class="card-body stack" style="gap:16px" id="limits">
+      <div class="small dim">Loading…</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <h2>Requests over time</h2>
+      <div class="row small" style="gap:14px">
+        <span class="row" style="gap:5px"><i class="dot" style="background:#DC382D"></i>reads</span>
+        <span class="row" style="gap:5px"><i class="dot" style="background:#8E1D14"></i>writes</span>
+        <span class="row" style="gap:5px"><i class="dot" style="background:#C77A11"></i>errors</span>
+      </div>
+    </div>
+    <div class="card-body">
+      <div id="usage-chart" style="height:220px"></div>
+    </div>
+  </div>
+
+  <div class="grid grid-2">
+    <div class="card">
+      <div class="card-head"><h2>Top keys by size</h2></div>
+      <div id="top-keys"><div class="card-body small dim">Loading…</div></div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h2>Latency</h2></div>
+      <div class="card-body">
+        <div class="grid grid-3" style="gap:12px">
+          <div><div class="label">p50</div><div class="mono" style="font-size:22px" id="p50">—</div></div>
+          <div><div class="label">p95</div><div class="mono" style="font-size:22px" id="p95">—</div></div>
+          <div><div class="label">p99</div><div class="mono" style="font-size:22px" id="p99">—</div></div>
+        </div>
+        <div id="latency-spark" style="height:44px;margin-top:16px"></div>
+        <p class="help" style="margin-top:8px">
+          Percentiles are estimated from histogram buckets, so each figure is an upper bound for that bucket.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><h2>Errors</h2></div>
+    <div id="errors"><div class="card-body small dim">Loading…</div></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const projectId = "{{ project.id }}";
+  let currentRange = "7d";
+
+  function meter(label, used, limit, formatter) {
+    const percent = limit ? Math.min(100, (used / limit) * 100) : 0;
+    return (
+      '<div><div class="row-between" style="margin-bottom:6px">' +
+      '<span class="small" style="font-weight:500">' + label + "</span>" +
+      '<span class="mono small dim">' + formatter(used) + " / " + formatter(limit) + "</span></div>" +
+      '<div class="meter"><i style="width:' + percent.toFixed(1) + '%"></i></div></div>'
+    );
+  }
+
+  async function load() {
+    try {
+      const data = await Central.api("/api/projects/" + projectId + "/usage?range=" + currentRange);
+
+      document.getElementById("limits").innerHTML =
+        meter("Keys", data.limits.keys.used, data.limits.keys.limit, Central.formatCount) +
+        meter("Storage", data.limits.bytes.used, data.limits.bytes.limit, Central.formatBytes) +
+        meter("Requests (30d)", data.limits.requests.used, data.limits.requests.limit, Central.formatCount) +
+        '<p class="help" style="margin:0">' +
+        (data.limits.enforced
+          ? "Limits are enforced. Requests beyond a limit will be rejected."
+          : "Limits are generous during beta and are not enforced yet. We'll email you well before anything changes.") +
+        "</p>";
+
+      const labels = data.series.map(function (point) {
+        const when = new Date(point.at);
+        return currentRange === "24h"
+          ? when.getHours() + ":00"
+          : when.toLocaleDateString([], { month: "short", day: "numeric" });
+      });
+      Central.areaChart(
+        document.getElementById("usage-chart"),
+        [
+          { values: data.series.map(function (p) { return p.reads; }), color: "#DC382D" },
+          { values: data.series.map(function (p) { return p.writes; }), color: "#8E1D14" },
+          { values: data.series.map(function (p) { return p.errors; }), color: "#C77A11", fill: false },
+        ],
+        labels
+      );
+
+      const percentiles = data.summary.percentiles;
+      document.getElementById("p50").textContent = percentiles.p50 + " ms";
+      document.getElementById("p95").textContent = percentiles.p95 + " ms";
+      document.getElementById("p99").textContent = percentiles.p99 + " ms";
+      Central.sparkline(
+        document.getElementById("latency-spark"),
+        data.series.map(function (p) { return p.avg_ms; })
+      );
+
+      const topKeys = document.getElementById("top-keys");
+      if (data.top_keys.length) {
+        const maximum = data.top_keys[0].size || 1;
+        topKeys.innerHTML =
+          '<table class="table"><thead><tr><th>Key</th><th style="width:70px">Type</th><th class="right" style="width:120px">Size</th></tr></thead><tbody>' +
+          data.top_keys.map(function (entry) {
+            const width = Math.max(2, (entry.size / maximum) * 100);
+            return (
+              '<tr><td class="mono truncate" style="max-width:220px">' + Central.escape(entry.key) + "</td>" +
+              '<td><span class="type-badge ' + Central.typeClass(entry.type) + '">' + entry.type_label + "</span></td>" +
+              '<td class="right" style="position:relative">' +
+              '<span style="position:absolute;right:16px;top:50%;transform:translateY(-50%);height:16px;background:var(--brand-subtle);border-radius:3px;width:' + width + '%;max-width:100px"></span>' +
+              '<span class="mono" style="position:relative">' + Central.formatBytes(entry.size) + "</span></td></tr>"
+            );
+          }).join("") +
+          "</tbody></table>";
+      } else {
+        topKeys.innerHTML = '<div class="card-body"><div class="empty empty-sm"><p class="small">No keys stored yet.</p></div></div>';
+      }
+
+      const errorsWrap = document.getElementById("errors");
+      if (data.errors.length) {
+        errorsWrap.innerHTML =
+          '<table class="table"><thead><tr><th>Time</th><th>Endpoint</th><th>Status</th><th>Message</th></tr></thead><tbody>' +
+          data.errors.map(function (entry) {
+            const cls = entry.s < 500 ? "badge-warning" : "badge-danger";
+            return (
+              '<tr><td class="mono dim small">' + Central.formatTime(entry.t) + "</td>" +
+              '<td class="mono truncate" style="max-width:200px">' + Central.escape(entry.p) + "</td>" +
+              '<td><span class="badge ' + cls + '">' + entry.s + "</span></td>" +
+              '<td class="small muted truncate" style="max-width:280px">' + Central.escape(entry.e || "—") + "</td></tr>"
+            );
+          }).join("") +
+          "</tbody></table>";
+      } else {
+        errorsWrap.innerHTML =
+          '<div class="card-body"><div class="row small" style="color:var(--success)">{{ icon("check", 16) }} No errors in this window.</div></div>';
+      }
+    } catch (err) {
+      Central.toast(err.message, "err");
+    }
+  }
+
+  document.getElementById("range-picker").addEventListener("click", function (event) {
+    const button = event.target.closest("button[data-range]");
+    if (!button) return;
+    currentRange = button.getAttribute("data-range");
+    this.querySelectorAll("button").forEach(function (node) {
+      node.classList.toggle("active", node === button);
+    });
+    load();
+  });
+
+  load();
+})();
+</script>
+{% endblock %}

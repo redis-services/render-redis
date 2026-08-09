@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% from "partials/icons.html" import icon, logo %}
+{% block title %}Quickstart — {{ project.id }}{% endblock %}
+
+{% block body %}
+<div style="max-width:720px;margin:0 auto;padding:32px 24px 80px">
+  <div class="row-between" style="margin-bottom:32px">
+    <a href="/app" class="row" style="gap:8px;color:var(--text);font-weight:600">{{ logo(20) }} Central</a>
+    <a href="/app/{{ project.id }}" class="btn btn-ghost btn-sm">Skip to dashboard →</a>
+  </div>
+
+  <div style="text-align:center;margin-bottom:36px">
+    <span style="display:inline-flex;width:44px;height:44px;border-radius:50%;background:var(--success-bg);color:var(--success);align-items:center;justify-content:center">{{ icon('check', 22) }}</span>
+    <h1 style="margin-top:14px"><span class="mono">{{ project.id }}</span> is ready</h1>
+    <p class="muted" style="margin:8px 0 0">Three steps and you're storing data.</p>
+  </div>
+
+  <div class="stack">
+    <div class="card">
+      <div class="card-body">
+        <div class="row" style="gap:12px;align-items:flex-start">
+          <span class="avatar" style="background:var(--brand);color:#fff">1</span>
+          <div class="grow">
+            <h3>Save your API key</h3>
+            {% if api_key %}
+            <p class="small muted" style="margin:4px 0 10px">Shown once. Store it in your environment as <span class="mono">CENTRAL_KEY</span>.</p>
+            <span class="copyable" style="width:100%">
+              <span class="grow">{{ api_key }}</span>
+              <button type="button" class="btn btn-ghost btn-icon" data-copy="{{ api_key }}" data-copy-label="API key">{{ icon('copy', 14) }}</button>
+            </span>
+            {% else %}
+            <p class="small muted" style="margin:4px 0 0">
+              Manage keys on the <a href="/app/{{ project.id }}/keys">API Keys</a> page.
+            </p>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-body">
+        <div class="row" style="gap:12px;align-items:flex-start">
+          <span class="avatar" style="background:var(--brand);color:#fff">2</span>
+          <div class="grow" style="min-width:0">
+            <h3>Store your first value</h3>
+            <p class="small muted" style="margin:4px 0 12px">Run this in your terminal.</p>
+            <div class="code"><span class="tok-cmd">curl</span> -X POST {{ base_url }}/{{ project.id }}/set/hello \
+  -H <span class="tok-str">"x-api-key: $CENTRAL_KEY"</span> \
+  -H <span class="tok-str">"Content-Type: application/json"</span> \
+  -d <span class="tok-str">'{"value": "world", "ttl": 3600}'</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-body">
+        <div class="row" style="gap:12px;align-items:flex-start">
+          <span class="avatar" style="background:var(--brand);color:#fff">3</span>
+          <div class="grow" style="min-width:0">
+            <h3>Read it back</h3>
+            <div class="code" style="margin-top:10px"><span class="tok-cmd">curl</span> {{ base_url }}/{{ project.id }}/get/hello \
+  -H <span class="tok-str">"x-api-key: $CENTRAL_KEY"</span>
+
+<span class="tok-flag"># {"key":"hello","value":"world","exists":true}</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row" style="justify-content:center;gap:10px;margin-top:32px">
+    <a href="/app/{{ project.id }}" class="btn btn-primary">Go to dashboard</a>
+    <a href="/api/docs" class="btn btn-secondary" target="_blank" rel="noopener">API reference</a>
+  </div>
+</div>
+<div class="toasts"></div>
+{% endblock %}

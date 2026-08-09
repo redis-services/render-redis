@@ -1,0 +1,192 @@
+{% extends "partials/shell.html" %}
+{% from "partials/icons.html" import icon, copy_button %}
+{% block title %}Projects — Central{% endblock %}
+{% block page_title %}Projects{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Projects</h1>
+    <p class="muted small" style="margin:4px 0 0">
+      {{ projects|length }} of {{ project_limit }} projects used.
+    </p>
+  </div>
+  <button class="btn btn-primary" data-modal-open="new-project">{{ icon('plus', 15) }} New project</button>
+</div>
+
+{% if projects %}
+  <div class="grid grid-3">
+    {% for item in projects %}
+    <div class="card">
+      <div class="card-body">
+        <div class="row-between" style="margin-bottom:10px">
+          <a href="/app/{{ item.id }}" class="mono" style="font-size:15px;font-weight:600;color:var(--text)">{{ item.id }}</a>
+          <span class="row small dim" style="gap:5px">
+            <i class="dot dot-{{ item.status }}"></i>{{ item.status }}
+          </span>
+        </div>
+
+        <span class="copyable small" style="width:100%">
+          <span class="dim truncate">{{ item.base_url }}</span>
+          {{ copy_button(item.base_url, 'Base URL') }}
+        </span>
+
+        <div class="grid grid-3" style="gap:8px;margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
+          <div>
+            <div class="label" style="font-size:10px">Keys</div>
+            <div class="mono" style="font-size:16px">{{ item["keys"] | count }}</div>
+          </div>
+          <div>
+            <div class="label" style="font-size:10px">Memory</div>
+            <div class="mono" style="font-size:16px">{{ item.bytes | bytes }}</div>
+          </div>
+          <div>
+            <div class="label" style="font-size:10px">Reqs 24h</div>
+            <div class="mono" style="font-size:16px">{{ item.requests_24h | count }}</div>
+          </div>
+        </div>
+
+        <div class="row-between" style="margin-top:14px">
+          <span class="tiny dim">created {{ item.created_at | ago }}</span>
+          <a href="/app/{{ item.id }}" class="btn btn-ghost btn-sm">Open →</a>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+{% else %}
+  <div class="empty">
+    <span class="empty-icon">{{ icon('database', 42) }}</span>
+    <h2>No projects yet</h2>
+    <p>A project gives you an isolated Redis namespace and its own API key. Create one to get started.</p>
+    <button class="btn btn-primary" data-modal-open="new-project" style="margin-top:6px">Create your first project</button>
+  </div>
+
+  <div class="grid grid-3" style="margin-top:20px">
+    <div class="card"><div class="card-body">
+      <div class="label">Quickstart</div>
+      <p class="small muted" style="margin:6px 0 10px">Zero to your first key in two minutes.</p>
+      <a href="/api/docs" class="small">Read →</a>
+    </div></div>
+    <div class="card"><div class="card-body">
+      <div class="label">API reference</div>
+      <p class="small muted" style="margin:6px 0 10px">Every endpoint, with curl and JavaScript examples.</p>
+      <a href="/api/docs" class="small">Read →</a>
+    </div></div>
+    <div class="card"><div class="card-body">
+      <div class="label">Key namespacing</div>
+      <p class="small muted" style="margin:6px 0 10px">How Central isolates your data per project.</p>
+      <a href="/api/docs" class="small">Read →</a>
+    </div></div>
+  </div>
+{% endif %}
+{% endblock %}
+
+{% block modals %}
+<div class="overlay hidden" id="new-project">
+  <div class="modal">
+    <div class="modal-head">
+      <h2>Create project</h2>
+      <button class="btn btn-ghost btn-icon" data-modal-close="new-project">{{ icon('x', 16) }}</button>
+    </div>
+    <div class="modal-body">
+      <div class="field">
+        <label for="np-id">Project ID</label>
+        <input class="input mono" id="np-id" placeholder="my_project" autocomplete="off" />
+        <span class="help">Lowercase letters, numbers, and underscores. Spaces and hyphens are converted automatically. This becomes part of your URL and cannot be changed later.</span>
+      </div>
+
+      <div style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:10px 12px">
+        <div class="label" style="margin-bottom:4px">Preview</div>
+        <code class="small">{{ base_url }}/<span id="np-preview" style="color:var(--brand)">my_project</span>/get/{key}</code>
+      </div>
+
+      <div class="field">
+        <label for="np-name">Display name <span class="dim">(optional)</span></label>
+        <input class="input" id="np-name" placeholder="My Project" autocomplete="off" />
+      </div>
+
+      <div class="alert" id="np-error" style="display:none"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-secondary" data-modal-close="new-project">Cancel</button>
+      <button class="btn btn-primary" id="np-submit">Create project</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay hidden" id="key-reveal">
+  <div class="modal">
+    <div class="modal-head">
+      <h2>Save your API key</h2>
+    </div>
+    <div class="modal-body">
+      <div class="alert alert-warn">
+        <span>This is the only time the full key is shown. Store it somewhere safe before closing this dialog.</span>
+      </div>
+      <div class="field">
+        <label>API key</label>
+        <span class="copyable" style="width:100%">
+          <span id="kr-key" class="grow"></span>
+          <button type="button" class="btn btn-ghost btn-icon" id="kr-copy">{{ icon('copy', 14) }}</button>
+        </span>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <a class="btn btn-primary" id="kr-continue" href="/app">I've saved it — continue</a>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const idInput = document.getElementById("np-id");
+  const preview = document.getElementById("np-preview");
+  const errorBox = document.getElementById("np-error");
+  const submit = document.getElementById("np-submit");
+
+  function normalise(value) {
+    return value.trim().toLowerCase().replace(/[\s-]+/g, "_").replace(/[^a-z0-9_]/g, "");
+  }
+
+  idInput.addEventListener("input", function () {
+    preview.textContent = normalise(idInput.value) || "my_project";
+  });
+
+  submit.addEventListener("click", async function () {
+    const projectId = normalise(idInput.value);
+    errorBox.style.display = "none";
+    if (!projectId) {
+      errorBox.textContent = "Enter a project ID.";
+      errorBox.className = "alert alert-err";
+      errorBox.style.display = "flex";
+      return;
+    }
+
+    submit.disabled = true;
+    submit.textContent = "Creating…";
+    try {
+      const result = await Central.api("/api/projects", {
+        method: "POST",
+        body: { project_id: projectId, name: document.getElementById("np-name").value },
+      });
+      Central.closeModal("new-project");
+      document.getElementById("kr-key").textContent = result.api_key;
+      document.getElementById("kr-copy").setAttribute("data-copy", result.api_key);
+      document.getElementById("kr-copy").setAttribute("data-copy-label", "API key");
+      document.getElementById("kr-continue").href = "/app/" + result.id + "/quickstart";
+      Central.openModal("key-reveal");
+    } catch (err) {
+      errorBox.textContent = err.message;
+      errorBox.className = "alert alert-err";
+      errorBox.style.display = "flex";
+    } finally {
+      submit.disabled = false;
+      submit.textContent = "Create project";
+    }
+  });
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% from "partials/icons.html" import logo %}
+{% block title %}{{ code }} — Central{% endblock %}
+
+{% block body %}
+<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px">
+  <div style="text-align:center;max-width:420px">
+    {{ logo(32) }}
+    <h1 class="mono" style="font-size:52px;margin:16px 0 4px;color:var(--brand)">{{ code }}</h1>
+    <h2 style="margin-bottom:8px">{{ title }}</h2>
+    <p class="muted">{{ detail }}</p>
+    <a href="/app" class="btn btn-primary" style="margin-top:18px">Back to dashboard</a>
+  </div>
+</div>
+{% endblock %}

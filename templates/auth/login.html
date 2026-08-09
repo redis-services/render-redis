@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% from "partials/icons.html" import logo, flash %}
+{% block title %}Sign in — Central{% endblock %}
+
+{% block body %}
+<div class="auth">
+  <section class="auth-side">
+    {{ logo(36) }}
+    <h1>Redis for every project you ship.</h1>
+    <p>One API key. One base URL. Isolated namespaces. No connection strings to manage.</p>
+    <div class="code"><span class="tok-cmd">curl</span> -X POST {{ base_url }}/my_app/set/session \
+  -H <span class="tok-str">"x-api-key: sk_live_8Kd…"</span> \
+  -d <span class="tok-str">'{"value": {"user": 42}, "ttl": 3600}'</span></div>
+  </section>
+
+  <section class="auth-main">
+    <div class="auth-card">
+      <h1>Sign in to Central</h1>
+      <p class="muted" style="margin:0 0 22px">Pick up where you left off.</p>
+
+      {{ flash(message, message_type) }}
+
+      <form method="post" action="/login" class="stack" style="gap:14px">
+        <input type="hidden" name="next_url" value="{{ next_url }}" />
+        <div class="field">
+          <label for="email">Email</label>
+          <input class="input" type="email" id="email" name="email" autocomplete="email" required autofocus />
+        </div>
+        <div class="field">
+          <div class="row-between">
+            <label for="password">Password</label>
+          </div>
+          <div style="position:relative">
+            <input class="input" type="password" id="password" name="password" autocomplete="current-password" required style="padding-right:62px" />
+            <button type="button" class="btn btn-ghost btn-sm" style="position:absolute;right:5px;top:5px" onclick="Central.togglePassword(this)">Show</button>
+          </div>
+        </div>
+        <button type="submit" class="btn btn-primary btn-block">Sign in</button>
+      </form>
+
+      <p class="small muted" style="margin-top:22px;text-align:center">
+        New to Central? <a href="/signup">Create an account</a>
+      </p>
+    </div>
+  </section>
+</div>
+{% endblock %}
