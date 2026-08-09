@@ -8,10 +8,19 @@
   <div>
     <h1>Projects</h1>
     <p class="muted small" style="margin:4px 0 0">
-      {{ projects|length }} of {{ project_limit }} projects used.
+      {% if user.role == 'admin' %}
+        {{ projects|length }} project{{ '' if projects|length == 1 else 's' }} — admins have no limit.
+      {% else %}
+        {{ projects|length }} of {{ project_limit }} project{{ '' if project_limit == 1 else 's' }} used.
+      {% endif %}
     </p>
   </div>
-  <button class="btn btn-primary" data-modal-open="new-project">{{ icon('plus', 15) }} New project</button>
+  {% set at_limit = user.role != 'admin' and projects|length >= project_limit %}
+  <button class="btn btn-primary" data-modal-open="new-project"
+          {{ 'disabled' if at_limit }}
+          title="{{ 'Delete your existing project to create a different one' if at_limit else '' }}">
+    {{ icon('plus', 15) }} New project
+  </button>
 </div>
 
 {% if projects %}
@@ -66,17 +75,17 @@
     <div class="card"><div class="card-body">
       <div class="label">Quickstart</div>
       <p class="small muted" style="margin:6px 0 10px">Zero to your first key in two minutes.</p>
-      <a href="/api/docs" class="small">Read →</a>
+      <a href="/docs" class="small">Read →</a>
     </div></div>
     <div class="card"><div class="card-body">
       <div class="label">API reference</div>
       <p class="small muted" style="margin:6px 0 10px">Every endpoint, with curl and JavaScript examples.</p>
-      <a href="/api/docs" class="small">Read →</a>
+      <a href="/docs" class="small">Read →</a>
     </div></div>
     <div class="card"><div class="card-body">
       <div class="label">Key namespacing</div>
       <p class="small muted" style="margin:6px 0 10px">How Central isolates your data per project.</p>
-      <a href="/api/docs" class="small">Read →</a>
+      <a href="/docs" class="small">Read →</a>
     </div></div>
   </div>
 {% endif %}

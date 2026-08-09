@@ -1,0 +1,237 @@
+{% extends "partials/shell.html" %}
+{% from "partials/icons.html" import icon, copy_button %}
+{% block title %}API reference — Central{% endblock %}
+{% block page_title %}API reference{% endblock %}
+
+{% macro endpoint(method, path, summary, body='', response='') %}
+<div class="card" style="margin-bottom:12px">
+  <div class="card-head" style="gap:10px">
+    <div class="row" style="gap:10px;min-width:0">
+      <span class="badge badge-{{ 'info' if method == 'GET' else 'success' if method == 'POST' else 'danger' }}" style="flex:none">{{ method }}</span>
+      <span class="mono truncate" style="font-size:13px">{{ path }}</span>
+    </div>
+  </div>
+  <div class="card-body" style="padding:14px 20px">
+    <p class="small muted" style="margin:0 0 12px">{{ summary }}</p>
+    {% if body %}
+      <div class="label" style="margin-bottom:5px">Request body</div>
+      <div class="json-view" style="margin-bottom:12px">{{ body }}</div>
+    {% endif %}
+    {% if response %}
+      <div class="label" style="margin-bottom:5px">Response</div>
+      <div class="json-view">{{ response }}</div>
+    {% endif %}
+  </div>
+</div>
+{% endmacro %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>API reference</h1>
+    <p class="muted small" style="margin:6px 0 0">
+      Every endpoint is scoped to one project and authenticated with that project's key.
+    </p>
+  </div>
+  {% if is_admin %}
+    <a href="/api/docs" class="btn btn-secondary btn-sm" target="_blank" rel="noopener">
+      {{ icon('external', 14) }} OpenAPI schema
+    </a>
+  {% endif %}
+</div>
+
+<div class="grid" style="grid-template-columns:minmax(0,1fr) 200px;gap:28px;align-items:start">
+<div>
+
+<!-- Getting started -->
+<h2 id="basics" style="margin-bottom:12px">Basics</h2>
+<div class="card" style="margin-bottom:28px">
+  <div class="card-body stack" style="gap:16px">
+    <div>
+      <div class="label" style="margin-bottom:6px">Base URL</div>
+      <span class="copyable" style="width:100%">
+        <span class="truncate">{{ example_base }}</span>
+        {{ copy_button(example_base, 'Base URL') }}
+      </span>
+      <p class="help" style="margin-top:8px">
+        Every path below is relative to this. Your project ID is part of the URL, so
+        there is no connection string and no host to configure.
+      </p>
+    </div>
+
+    <div>
+      <div class="label" style="margin-bottom:6px">Authentication</div>
+      <p class="small muted" style="margin:0 0 8px">
+        Send your key in the <span class="mono">x-api-key</span> header on every request.
+        A missing header is a 422; a wrong key is a 401.
+      </p>
+      <div class="code">curl {{ example_base }}/get/hello \
+  -H <span class="tok-str">"x-api-key: $CENTRAL_KEY"</span></div>
+    </div>
+
+    <div>
+      <div class="label" style="margin-bottom:6px">Values</div>
+      <p class="small muted" style="margin:0">
+        Values are stored as JSON when they parse as JSON, and as raw strings otherwise.
+        Reads reverse this, so <span class="mono">{"a": 1}</span> comes back as an object,
+        not a string. Numbers, booleans, arrays, and nested objects all round-trip.
+      </p>
+    </div>
+
+    <div>
+      <div class="label" style="margin-bottom:6px">Namespacing</div>
+      <p class="small muted" style="margin:0">
+        Keys are stored internally as <span class="mono">{{ example_project }}:your_key</span>.
+        You never write the prefix and never see it — but it means two projects can both
+        use <span class="mono">session:1</span> without colliding.
+      </p>
+    </div>
+
+    <div>
+      <div class="label" style="margin-bottom:6px">TTL</div>
+      <p class="small muted" style="margin:0">
+        Pass <span class="mono">ttl</span> in seconds on write, or call
+        <span class="mono">/expire</span> later. Keys without a TTL live until deleted.
+        <span class="mono">/ttl</span> returns <span class="mono">-1</span> for no expiry
+        and <span class="mono">-2</span> if the key does not exist.
+      </p>
+    </div>
+  </div>
+</div>
+
+<!-- Strings -->
+<h2 id="strings" style="margin-bottom:12px">Strings</h2>
+{{ endpoint('GET', '/get/{key}', 'Read a value.', '',
+  '{\n  "key": "hello",\n  "value": "world",\n  "exists": true\n}') }}
+{{ endpoint('POST', '/set/{key}', 'Write a value, optionally with a TTL in seconds.',
+  '{\n  "value": {"items": 3},\n  "ttl": 3600\n}',
+  '{\n  "ok": true,\n  "key": "cart:42",\n  "ttl": 3600\n}') }}
+{{ endpoint('DELETE', '/delete/{key}', 'Delete a key.', '',
+  '{\n  "ok": true,\n  "deleted": true\n}') }}
+{{ endpoint('POST', '/expire/{key}', 'Set or replace a key\'s TTL.',
+  '{\n  "ttl": 600\n}', '{\n  "ok": true\n}') }}
+{{ endpoint('GET', '/ttl/{key}', 'Seconds remaining. -1 means no expiry, -2 means no such key.', '',
+  '{\n  "key": "cart:42",\n  "ttl": 3540\n}') }}
+{{ endpoint('POST', '/incr/{key}', 'Atomically add to an integer. Returns 409 if the value is not an integer.',
+  '{\n  "by": 1\n}', '{\n  "key": "views",\n  "value": 42\n}') }}
+{{ endpoint('POST', '/mset', 'Write many keys at once. One TTL applies to all of them.',
+  '{\n  "pairs": {"a": 1, "b": 2},\n  "ttl": 600\n}',
+  '{\n  "ok": true,\n  "count": 2\n}') }}
+{{ endpoint('POST', '/mget', 'Read many keys at once. The body is a JSON array of key names.',
+  '["a", "b", "missing"]',
+  '{\n  "result": {"a": 1, "b": 2, "missing": null}\n}') }}
+
+<!-- Lists -->
+<h2 id="lists" style="margin:28px 0 12px">Lists</h2>
+{{ endpoint('POST', '/lpush/{key}', 'Prepend one or more values.',
+  '{\n  "values": ["first", "second"]\n}',
+  '{\n  "ok": true,\n  "length": 2\n}') }}
+{{ endpoint('POST', '/rpush/{key}', 'Append one or more values.',
+  '{\n  "values": ["third"]\n}',
+  '{\n  "ok": true,\n  "length": 3\n}') }}
+{{ endpoint('GET', '/lrange/{key}?start=0&end=-1', 'Read a range. Negative indices count from the end; -1 is the last element.', '',
+  '{\n  "key": "queue",\n  "values": ["first", "second"]\n}') }}
+{{ endpoint('DELETE', '/lpop/{key}', 'Remove and return the first element.', '',
+  '{\n  "value": "first"\n}') }}
+{{ endpoint('DELETE', '/rpop/{key}', 'Remove and return the last element.', '',
+  '{\n  "value": "third"\n}') }}
+
+<!-- Hashes -->
+<h2 id="hashes" style="margin:28px 0 12px">Hashes</h2>
+{{ endpoint('POST', '/hset/{key}', 'Set one or more fields.',
+  '{\n  "mapping": {"status": "paid", "total": 8700}\n}',
+  '{\n  "ok": true,\n  "fields": 2\n}') }}
+{{ endpoint('GET', '/hget/{key}/{field}', 'Read one field.', '',
+  '{\n  "field": "status",\n  "value": "paid",\n  "exists": true\n}') }}
+{{ endpoint('GET', '/hgetall/{key}', 'Read every field.', '',
+  '{\n  "key": "order:1",\n  "value": {"status": "paid", "total": 8700}\n}') }}
+{{ endpoint('DELETE', '/hdel/{key}/{field}', 'Delete one field.', '',
+  '{\n  "ok": true,\n  "deleted": true\n}') }}
+
+<!-- Sets -->
+<h2 id="sets" style="margin:28px 0 12px">Sets</h2>
+{{ endpoint('POST', '/sadd/{key}', 'Add members. Duplicates are ignored.',
+  '{\n  "members": ["a", "b", "a"]\n}',
+  '{\n  "ok": true,\n  "added": 2\n}') }}
+{{ endpoint('GET', '/smembers/{key}', 'Read every member. Order is not guaranteed.', '',
+  '{\n  "key": "tags",\n  "members": ["a", "b"]\n}') }}
+{{ endpoint('POST', '/srem/{key}', 'Remove members.',
+  '{\n  "members": ["a"]\n}',
+  '{\n  "ok": true,\n  "removed": 1\n}') }}
+
+<!-- Keys -->
+<h2 id="keys" style="margin:28px 0 12px">Listing and clearing</h2>
+<div class="alert" style="margin-bottom:12px">
+  <span>
+    Listing is cursor-based. Pass the <span class="mono">cursor</span> from each response
+    back on the next call until <span class="mono">done</span> is true. A cursor of 0 with
+    <span class="mono">done: false</span> does not mean you are finished — always check
+    <span class="mono">done</span>.
+  </span>
+</div>
+{{ endpoint('GET', '/keys?pattern=*&cursor=0&limit=200', 'Key names only. Patterns are Redis globs, scoped to your project.', '',
+  '{\n  "project": "' ~ example_project ~ '",\n  "keys": ["cart:42", "cart:43"],\n  "count": 2,\n  "cursor": 0,\n  "done": true\n}') }}
+{{ endpoint('GET', '/scan?pattern=*&cursor=0&limit=50', 'Like /keys, but with type, TTL, and size for each key.', '',
+  '{\n  "keys": [\n    {"key": "cart:42", "type": "string", "ttl": 3540, "size": 248}\n  ],\n  "cursor": 0,\n  "done": true\n}') }}
+{{ endpoint('DELETE', '/flush', 'Delete every key in this project. Not reversible.', '',
+  '{\n  "ok": true,\n  "deleted": 1284\n}') }}
+
+<!-- Errors -->
+<h2 id="errors" style="margin:28px 0 12px">Errors</h2>
+<div class="card" style="margin-bottom:28px">
+  <table class="table">
+    <thead><tr><th style="width:70px">Code</th><th>Meaning</th></tr></thead>
+    <tbody>
+      <tr><td class="mono">401</td><td>The key is wrong, revoked, or belongs to a different project.</td></tr>
+      <tr><td class="mono">404</td><td>No such project. Check the project ID in your base URL.</td></tr>
+      <tr><td class="mono">409</td><td>The operation doesn't fit the value — <span class="mono">incr</span> on something that isn't an integer.</td></tr>
+      <tr><td class="mono">422</td><td>The request body or headers didn't validate. A missing <span class="mono">x-api-key</span> lands here.</td></tr>
+      <tr><td class="mono">503</td><td>Redis is unreachable. Retry with backoff.</td></tr>
+    </tbody>
+  </table>
+  <div class="card-body" style="border-top:1px solid var(--border)">
+    <p class="small muted" style="margin:0 0 8px">Errors carry a <span class="mono">detail</span> field:</p>
+    <div class="json-view">{
+  "detail": "Invalid API key"
+}</div>
+  </div>
+</div>
+
+<!-- Limits -->
+<h2 id="limits" style="margin:28px 0 12px">Limits</h2>
+<div class="card">
+  <div class="card-body">
+    <p class="small muted" style="margin:0 0 12px">
+      Free plan, and not enforced during beta — you will get an email well before
+      anything changes.
+    </p>
+    <table class="table">
+      <tbody>
+        <tr><td>Projects per account</td><td class="mono right">{{ project_limit if project_limit is defined else 1 }}</td></tr>
+        <tr><td>Keys per project</td><td class="mono right">10,000</td></tr>
+        <tr><td>Storage per project</td><td class="mono right">100 MB</td></tr>
+        <tr><td>Requests per month</td><td class="mono right">1,000,000</td></tr>
+        <tr><td>API keys per project</td><td class="mono right">10</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+</div>
+
+<!-- Section nav -->
+<nav style="position:sticky;top:76px">
+  <div class="label" style="margin-bottom:8px">On this page</div>
+  <div class="stack" style="gap:2px">
+    <a href="#basics" class="small muted">Basics</a>
+    <a href="#strings" class="small muted">Strings</a>
+    <a href="#lists" class="small muted">Lists</a>
+    <a href="#hashes" class="small muted">Hashes</a>
+    <a href="#sets" class="small muted">Sets</a>
+    <a href="#keys" class="small muted">Listing and clearing</a>
+    <a href="#errors" class="small muted">Errors</a>
+    <a href="#limits" class="small muted">Limits</a>
+  </div>
+</nav>
+</div>
+{% endblock %}

@@ -33,12 +33,19 @@
         <div class="sep" style="height:1px;background:var(--border);margin:8px 10px"></div>
       {% endif %}
       <a href="/app" class="{{ 'active' if active == 'projects' }}">{{ icon('grid') }} All projects</a>
+      <a href="/docs" class="{{ 'active' if active == 'docs' }}">{{ icon('book') }} API reference</a>
+      {% if user.role == 'admin' %}
+        <a href="/admin" class="{{ 'active' if active == 'admin' }}">{{ icon('gauge') }} Admin</a>
+      {% endif %}
     </nav>
 
     <div class="sidebar-foot">
       <div class="avatar">{{ (user.name or user.email)[:1] | upper }}</div>
       <div class="grow truncate">
-        <div class="small truncate" style="font-weight:500">{{ user.name or user.email.split('@')[0] }}</div>
+        <div class="row" style="gap:5px">
+          <span class="small truncate" style="font-weight:500">{{ user.name or user.email.split('@')[0] }}</span>
+          {% if user.role == 'admin' %}<span class="badge badge-brand tiny">admin</span>{% endif %}
+        </div>
         <div class="tiny dim truncate">{{ user.email }}</div>
       </div>
       <a href="/account" class="btn btn-ghost btn-icon" title="Account settings">{{ icon('user', 15) }}</a>
@@ -56,7 +63,7 @@
           {{ copy_button(project_base_url, 'Base URL') }}
         </span>
         {% endif %}
-        <a href="/api/docs" target="_blank" rel="noopener" class="btn btn-ghost btn-sm">{{ icon('book', 14) }} Docs</a>
+        <a href="/docs" class="btn btn-ghost btn-sm">{{ icon('book', 14) }} Docs</a>
         <form method="post" action="/logout" style="display:inline">
           <button type="submit" class="btn btn-ghost btn-icon" title="Sign out">{{ icon('logout', 15) }}</button>
         </form>

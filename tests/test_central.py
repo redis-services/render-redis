@@ -103,18 +103,17 @@ def test_legacy_project_without_an_id_is_unusable():
     assert key_document is None
 
 
-def test_migrated_project_is_hidden_but_its_key_works(client, account):
+def test_migrated_project_is_hidden_but_its_key_works(client, account, run_async):
     """An ownerless migrated project must not appear in anyone's dashboard,
     while its API key keeps authenticating."""
-    import asyncio
     import main
 
     store = main.app.state.store
     fields, key_document = legacy_project_documents(
         {"project_id": "legacy_svc", "api_key": "legacy-secret-key", "created_at": utcnow()}
     )
-    asyncio.get_event_loop().run_until_complete(store.create_project(fields))
-    asyncio.get_event_loop().run_until_complete(store.create_api_key(key_document))
+    run_async(store.create_project(fields))
+    run_async(store.create_api_key(key_document))
 
     assert client.get("/api/projects").json()["projects"] == []
     assert client.get("/api/projects/legacy_svc").status_code == 404
@@ -126,20 +125,18 @@ def test_migrated_project_is_hidden_but_its_key_works(client, account):
     assert response.status_code == 200
 
 
-def test_claiming_assigns_migrated_projects(client, account):
-    import asyncio
+def test_claiming_assigns_migrated_projects(client, account, run_async):
     import main
 
     store = main.app.state.store
     fields, key_document = legacy_project_documents(
         {"project_id": "legacy_svc", "api_key": "legacy-secret-key", "created_at": utcnow()}
     )
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(store.create_project(fields))
-    loop.run_until_complete(store.create_api_key(key_document))
+    run_async(store.create_project(fields))
+    run_async(store.create_api_key(key_document))
 
-    user = loop.run_until_complete(store.get_user_by_email(account["email"]))
-    claimed = loop.run_until_complete(store.claim_unowned_projects(user["id"]))
+    user = run_async(store.get_user_by_email(account["email"]))
+    claimed = run_async(store.claim_unowned_projects(user["id"]))
     assert claimed == 1
 
     listing = client.get("/api/projects").json()["projects"]
@@ -601,7 +598,14 @@ def test_health_endpoint(client):
     assert payload["status"] == "ok"
 
 
-def test_reserved_paths_are_not_treated_as_projects(client):
-    assert client.get("/health").status_code == 200
-    assert client.get("/login").status_code == 200
-    assert client.get("/api/openapi.json").status_code == 200
+def test_reserved_paths_are_not_treated_as_projects(client, account):
+    """The tenant API lives at /{project_id}/..., so application paths must not
+    fall through to it. A route that did would demand an x-api-key header and
+    answer 422 without one — that 422 is the tell this test looks for.
+    """
+    for path in ("/health", "/app", "/docs", "/account", "/api/projects"):
+        assert client.get(path).status_code == 200, path
+
+    # Admin-gated paths answer 404 by design, but still never 422.
+    for path in ("/admin", "/api/admin/overview", "/api/openapi.json"):
+        assert client.get(path).status_code == 404, path

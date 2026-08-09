@@ -16,6 +16,10 @@ os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
 os.environ.pop("MONGODB_URI", None)
 os.environ["SECURE_COOKIES"] = "false"
 os.environ["KEEP_ALIVE_ENABLED"] = "false"
+os.environ.pop("ADMIN_EMAILS", None)
+# The shipped default is 1. Most tests need several projects to exercise
+# isolation between them; the limit itself is covered in test_roles.py.
+os.environ["LIMIT_PROJECTS_PER_USER"] = "10"
 
 
 @pytest.fixture()
@@ -56,3 +60,18 @@ def project(client, account):
     response = client.post("/api/projects", json={"project_id": "checkout_svc"})
     assert response.status_code == 201, response.text
     return response.json()
+
+
+@pytest.fixture()
+def run_async():
+    """Run a store coroutine from a sync test.
+
+    Tests occasionally need to reach past HTTP — to plant a legacy document, or
+    to tamper with a stored role — and the store is async.
+    """
+    import asyncio
+
+    def runner(coroutine):
+        return asyncio.run(coroutine)
+
+    return runner

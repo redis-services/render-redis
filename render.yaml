@@ -20,7 +20,15 @@ services:
       - key: MONGODB_DB
         value: central_redis
 
+      # Comma-separated admin accounts. Everyone else is a plain user.
+      - key: ADMIN_EMAILS
+        sync: false
+
       # Optional
+      # - key: LEGACY_OWNER_EMAIL  # claims migrated, ownerless projects at startup
+      #   sync: false
+      # - key: LIMIT_PROJECTS_PER_USER   # admins are exempt
+      #   value: "1"
       # - key: SIGNUPS_ENABLED     # set to "false" to close registration
       #   value: "true"
       # - key: ENFORCE_LIMITS      # set to "true" to reject over-limit requests

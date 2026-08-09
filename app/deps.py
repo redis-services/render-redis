@@ -56,8 +56,19 @@ async def get_optional_user(request: Request) -> dict | None:
     if not last_seen or (utcnow() - last_seen) > timedelta(hours=1):
         await store.touch_session(session["token_hash"], utcnow())
 
+    # The environment decides who is an admin, so a stored role that disagrees
+    # with ADMIN_EMAILS is corrected here rather than trusted.
+    expected_role = config.role_for(user["email"])
+    if user.get("role") != expected_role:
+        await store.update_user(user["id"], {"role": expected_role})
+        user["role"] = expected_role
+
     request.state.session = session
     return user
+
+
+def is_admin(user: dict | None) -> bool:
+    return bool(user) and config.role_for(user["email"]) == config.ROLE_ADMIN
 
 
 async def require_user(request: Request) -> dict:
@@ -73,6 +84,22 @@ async def require_user_page(request: Request) -> dict:
     user = await get_optional_user(request)
     if not user:
         raise LoginRequired(next_url=str(request.url.path))
+    return user
+
+
+async def require_admin(request: Request) -> dict:
+    user = await require_user(request)
+    if not is_admin(user):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
+    return user
+
+
+async def require_admin_page(request: Request) -> dict:
+    """A non-admin gets a 404, not a 403 — there is no reason to advertise that
+    an admin console exists to someone who cannot use it."""
+    user = await require_user_page(request)
+    if not is_admin(user):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
     return user
 
 

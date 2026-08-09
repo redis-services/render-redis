@@ -20,14 +20,15 @@ from urllib.parse import quote
 import httpx
 import redis.asyncio as aioredis
 import uvicorn
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
+from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from app import config, metrics
-from app.deps import LoginRequired
-from app.routers import auth, data, pages, projects_api
+from app.deps import LoginRequired, require_admin
+from app.routers import admin, auth, data, docs, pages, projects_api
 from app.store import build_store, utcnow
 from app.templating import page
 
@@ -68,11 +69,14 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Central — Multi-Tenant Redis",
-    version="2.0.0",
+    version="2.1.0",
     lifespan=lifespan,
-    docs_url="/api/docs",
+    # The generated docs describe every route including the dashboard's own,
+    # which is noise for tenants and detail they don't need. Readers get the
+    # written reference at /docs; the schema is re-exposed to admins below.
+    docs_url=None,
     redoc_url=None,
-    openapi_url="/api/openapi.json",
+    openapi_url=None,
 )
 
 if STATIC_DIR.is_dir():
@@ -162,6 +166,16 @@ async def handle_validation_error(request: Request, exc: RequestValidationError)
 
 # ── Health ─────────────────────────────────────────────────────────────────────
 
+@app.get("/api/openapi.json", include_in_schema=False)
+async def openapi_schema(_: dict = Depends(require_admin)):
+    return app.openapi()
+
+
+@app.get("/api/docs", include_in_schema=False)
+async def swagger_ui(_: dict = Depends(require_admin)):
+    return get_swagger_ui_html(openapi_url="/api/openapi.json", title="Central API schema")
+
+
 @app.get("/health", tags=["ops"])
 async def health(request: Request):
     try:
@@ -237,6 +251,8 @@ async def _self_ping_loop():
 # swallow every application path, so it is registered last.
 
 app.include_router(auth.router)
+app.include_router(docs.router)
+app.include_router(admin.router)
 app.include_router(pages.router)
 app.include_router(projects_api.router)
 app.include_router(data.router)

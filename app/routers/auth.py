@@ -118,6 +118,8 @@ async def signup(
         "password_hash": hash_password(password),
         "created_at": utcnow(),
         "email_verified": False,
+        # Derived from ADMIN_EMAILS, never from anything the visitor sends.
+        "role": config.role_for(email),
     }
     try:
         await store.create_user(user)

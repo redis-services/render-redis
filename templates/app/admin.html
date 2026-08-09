@@ -1,0 +1,241 @@
+{% extends "partials/shell.html" %}
+{% from "partials/icons.html" import icon %}
+{% block title %}Admin — Central{% endblock %}
+{% block page_title %}Admin{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Admin</h1>
+    <p class="muted small" style="margin:6px 0 0">
+      Every account and project on this instance. Read-only — settings, stored values,
+      and key material stay with their owner.
+    </p>
+  </div>
+  <div class="segmented" id="range-picker">
+    <button class="active" data-range="24h">24h</button>
+    <button data-range="7d">7d</button>
+    <button data-range="30d">30d</button>
+  </div>
+</div>
+
+<div class="stack">
+  <div class="grid grid-4">
+    <div class="card stat"><div class="label">Users</div><div class="value" id="t-users">—</div></div>
+    <div class="card stat"><div class="label">Projects</div><div class="value" id="t-projects">—</div></div>
+    <div class="card stat"><div class="label">Total keys</div><div class="value" id="t-keys">—</div></div>
+    <div class="card stat"><div class="label">Requests</div><div class="value" id="t-requests">—</div><div class="delta dim" id="t-errors">—</div></div>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <h2>Projects</h2>
+      <input class="input input-sm" id="filter" placeholder="Filter by project or owner" style="width:260px" />
+    </div>
+    <div id="projects-table"><div class="card-body small dim">Loading…</div></div>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><h2>Users</h2></div>
+    <div id="users-table"><div class="card-body small dim">Loading…</div></div>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><h2>Configuration</h2></div>
+    <div class="card-body">
+      <div class="row" style="align-items:flex-start;margin-bottom:10px">
+        <div class="label" style="width:170px;flex:none">Admin accounts</div>
+        <div class="mono small">
+          {% for email in admin_emails %}{{ email }}{% if not loop.last %}, {% endif %}{% else %}
+            <span class="dim">none configured</span>
+          {% endfor %}
+        </div>
+      </div>
+      <div class="row" style="align-items:flex-start">
+        <div class="label" style="width:170px;flex:none">Projects per user</div>
+        <div class="mono small">{{ project_limit }} <span class="dim">(admins exempt)</span></div>
+      </div>
+      <p class="help" style="margin-top:14px">
+        Roles come from the <span class="mono">ADMIN_EMAILS</span> environment variable, not
+        from the database — a role stored only in Mongo could be granted by anyone able to
+        write to Mongo. Change the variable and restart to add or remove an admin.
+      </p>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block modals %}
+<div class="overlay hidden" id="detail">
+  <div class="modal modal-lg">
+    <div class="modal-head">
+      <h2 id="detail-title" class="mono">Project</h2>
+      <button class="btn btn-ghost btn-icon" data-modal-close="detail">{{ icon('x', 16) }}</button>
+    </div>
+    <div class="modal-body" id="detail-body"></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  let currentRange = "24h";
+  let projects = [];
+
+  function renderTotals(totals) {
+    document.getElementById("t-users").textContent = totals.users;
+    document.getElementById("t-projects").textContent =
+      totals.projects + (totals.unowned ? " (" + totals.unowned + " unowned)" : "");
+    document.getElementById("t-keys").textContent = Central.formatCount(totals.keys);
+    document.getElementById("t-requests").textContent = Central.formatCount(totals.requests);
+    document.getElementById("t-errors").textContent =
+      totals.errors + " error" + (totals.errors === 1 ? "" : "s") + " · " +
+      Central.formatBytes(totals.bytes) + " stored";
+  }
+
+  function renderProjects() {
+    const needle = document.getElementById("filter").value.trim().toLowerCase();
+    const rows = projects.filter(function (row) {
+      if (!needle) return true;
+      return row.id.toLowerCase().indexOf(needle) >= 0 ||
+        (row.owner_email || "").toLowerCase().indexOf(needle) >= 0;
+    });
+
+    const wrap = document.getElementById("projects-table");
+    if (!rows.length) {
+      wrap.innerHTML = '<div class="card-body"><div class="empty empty-sm"><p class="small">No projects match.</p></div></div>';
+      return;
+    }
+
+    wrap.innerHTML =
+      '<table class="table"><thead><tr>' +
+      "<th>Project</th><th>Owner</th><th class=\"right\">Keys</th><th class=\"right\">Memory</th>" +
+      "<th class=\"right\">Requests</th><th class=\"right\">Errors</th><th>Status</th><th></th>" +
+      "</tr></thead><tbody>" +
+      rows.map(function (row) {
+        const owner = row.owner_email
+          ? Central.escape(row.owner_email)
+          : '<span class="badge badge-warning">unowned</span>';
+        const legacy = row.legacy ? ' <span class="badge">legacy</span>' : "";
+        return (
+          '<tr><td class="mono">' + Central.escape(row.id) + legacy + "</td>" +
+          '<td class="small">' + owner + "</td>" +
+          '<td class="mono right">' + Central.formatCount(row.keys) + "</td>" +
+          '<td class="mono right">' + Central.formatBytes(row.bytes) + "</td>" +
+          '<td class="mono right">' + Central.formatCount(row.requests) + "</td>" +
+          '<td class="mono right" style="' + (row.errors ? "color:var(--danger)" : "") + '">' +
+            row.errors + "</td>" +
+          '<td><span class="row small" style="gap:5px"><i class="dot dot-' + row.status + '"></i>' +
+            row.status + "</span></td>" +
+          '<td class="right"><button class="btn btn-ghost btn-sm" data-detail="' +
+            Central.escape(row.id) + '">Details</button></td></tr>'
+        );
+      }).join("") +
+      "</tbody></table>";
+  }
+
+  function renderUsers(users) {
+    document.getElementById("users-table").innerHTML =
+      '<table class="table"><thead><tr><th>Email</th><th>Name</th><th>Role</th>' +
+      '<th class="right">Projects</th><th>Joined</th></tr></thead><tbody>' +
+      users.map(function (user) {
+        const role = user.role === "admin"
+          ? '<span class="badge badge-brand">admin</span>'
+          : '<span class="badge">user</span>';
+        return (
+          '<tr><td class="mono small">' + Central.escape(user.email) + "</td>" +
+          "<td>" + Central.escape(user.name || "—") + "</td>" +
+          "<td>" + role + "</td>" +
+          '<td class="mono right">' + user.project_count + "</td>" +
+          '<td class="small dim">' + new Date(user.created_at).toLocaleDateString() + "</td></tr>"
+        );
+      }).join("") +
+      "</tbody></table>";
+  }
+
+  async function load() {
+    try {
+      const data = await Central.api("/api/admin/overview?range=" + currentRange);
+      projects = data.projects;
+      renderTotals(data.totals);
+      renderProjects();
+      renderUsers(data.users);
+    } catch (err) {
+      Central.toast(err.message, "err");
+    }
+  }
+
+  async function showDetail(projectId) {
+    document.getElementById("detail-title").textContent = projectId;
+    document.getElementById("detail-body").innerHTML = '<div class="small dim">Loading…</div>';
+    Central.openModal("detail");
+    try {
+      const data = await Central.api(
+        "/api/admin/projects/" + encodeURIComponent(projectId) + "?range=" + currentRange
+      );
+      const p = data.summary.percentiles;
+      document.getElementById("detail-body").innerHTML =
+        '<div class="grid grid-3" style="gap:12px">' +
+        '<div><div class="label">Owner</div><div class="small" style="padding-top:4px">' +
+          Central.escape(data.owner_email || "unowned") + "</div></div>" +
+        '<div><div class="label">Keys</div><div class="mono" style="font-size:18px">' +
+          Central.formatCount(data.stats.keys) + "</div></div>" +
+        '<div><div class="label">Memory</div><div class="mono" style="font-size:18px">' +
+          Central.formatBytes(data.stats.bytes) + "</div></div>" +
+        "</div>" +
+        '<div id="detail-chart" style="height:150px"></div>' +
+        '<div class="grid grid-3" style="gap:12px">' +
+        '<div><div class="label">p50</div><div class="mono">' + p.p50 + " ms</div></div>" +
+        '<div><div class="label">p95</div><div class="mono">' + p.p95 + " ms</div></div>" +
+        '<div><div class="label">p99</div><div class="mono">' + p.p99 + " ms</div></div>" +
+        "</div>" +
+        '<div><div class="label" style="margin-bottom:6px">API keys</div>' +
+        '<table class="table"><thead><tr><th>Name</th><th>Created</th><th>Last used</th></tr></thead><tbody>' +
+        data.api_keys.map(function (key) {
+          return "<tr><td>" + Central.escape(key.name) + "</td>" +
+            '<td class="small dim">' + new Date(key.created_at).toLocaleDateString() + "</td>" +
+            '<td class="small dim">' +
+            (key.last_used_at ? new Date(key.last_used_at).toLocaleString() : "never") +
+            "</td></tr>";
+        }).join("") +
+        "</tbody></table></div>" +
+        '<p class="help" style="margin:0">Key values and stored data are not shown here.</p>';
+
+      Central.areaChart(
+        document.getElementById("detail-chart"),
+        [{ values: data.series.map(function (point) { return point.requests; }), color: "#DC382D" }],
+        data.series.map(function (point) {
+          const when = new Date(point.at);
+          return currentRange === "24h"
+            ? when.getHours() + ":00"
+            : when.toLocaleDateString([], { month: "short", day: "numeric" });
+        })
+      );
+    } catch (err) {
+      document.getElementById("detail-body").innerHTML =
+        '<div class="alert alert-err">' + Central.escape(err.message) + "</div>";
+    }
+  }
+
+  document.getElementById("range-picker").addEventListener("click", function (event) {
+    const button = event.target.closest("button[data-range]");
+    if (!button) return;
+    currentRange = button.getAttribute("data-range");
+    this.querySelectorAll("button").forEach(function (node) {
+      node.classList.toggle("active", node === button);
+    });
+    load();
+  });
+
+  document.getElementById("projects-table").addEventListener("click", function (event) {
+    const button = event.target.closest("[data-detail]");
+    if (button) showDetail(button.getAttribute("data-detail"));
+  });
+
+  document.getElementById("filter").addEventListener("input", renderProjects);
+
+  load();
+})();
+</script>
+{% endblock %}

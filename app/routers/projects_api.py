@@ -10,7 +10,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from .. import config, keyspace, metrics
-from ..deps import get_redis, get_store, key_cache, owned_project, require_user
+from ..deps import get_redis, get_store, is_admin, key_cache, owned_project, require_user
 from ..security import generate_api_key, hash_api_key, mask_api_key, new_id
 from ..store import Store, utcnow
 
@@ -119,10 +119,15 @@ async def create_project(payload: CreateProject, request: Request,
     project_id = normalise_project_id(payload.project_id)
     validate_project_id(project_id)
 
-    if await store.count_projects(user["id"]) >= config.LIMIT_PROJECTS_PER_USER:
-        raise HTTPException(
-            403, f"You've reached the limit of {config.LIMIT_PROJECTS_PER_USER} projects."
-        )
+    # Admins are exempt: they operate the service and need room to test.
+    if not is_admin(user):
+        limit = config.LIMIT_PROJECTS_PER_USER
+        if await store.count_projects(user["id"]) >= limit:
+            raise HTTPException(
+                403,
+                f"You can create {limit} project{'s' if limit != 1 else ''} on the free "
+                "plan. Delete your existing project to create a different one.",
+            )
     if await store.get_project(project_id):
         raise HTTPException(409, f"Project ID '{project_id}' is already taken.")
 

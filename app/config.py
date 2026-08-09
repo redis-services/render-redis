@@ -22,7 +22,10 @@ API_KEY_PREFIX = "sk_live_"
 LIMIT_KEYS = int(os.getenv("LIMIT_KEYS", "10000"))
 LIMIT_BYTES = int(os.getenv("LIMIT_BYTES", str(100 * 1024 * 1024)))
 LIMIT_REQUESTS_MONTH = int(os.getenv("LIMIT_REQUESTS_MONTH", "1000000"))
-LIMIT_PROJECTS_PER_USER = int(os.getenv("LIMIT_PROJECTS_PER_USER", "10"))
+LIMIT_PROJECTS_PER_USER = int(os.getenv("LIMIT_PROJECTS_PER_USER", "1"))
+
+ROLE_ADMIN = "admin"
+ROLE_USER = "user"
 
 # Latency histogram buckets in milliseconds, used for percentile estimates.
 LATENCY_BUCKETS_MS = (1, 2, 5, 10, 25, 50, 100, 250, 500, 1000)
@@ -92,6 +95,23 @@ def allow_memory_store() -> bool:
     """Outside production the in-memory store is a convenience. Inside it, it is
     a data-loss bug waiting to happen, so it must be requested explicitly."""
     return _flag("ALLOW_MEMORY_STORE", "false") or not is_production()
+
+
+def admin_emails() -> frozenset[str]:
+    """Admins are named by environment variable, never self-assigned.
+
+    The environment is the source of truth rather than the database: a role
+    stored only in Mongo could be granted by anyone who can write to Mongo,
+    and revoking it would mean an edit rather than a config change.
+    """
+    raw = os.getenv("ADMIN_EMAILS", "")
+    return frozenset(
+        email.strip().lower() for email in raw.replace(";", ",").split(",") if email.strip()
+    )
+
+
+def role_for(email: str) -> str:
+    return ROLE_ADMIN if email.strip().lower() in admin_emails() else ROLE_USER
 
 
 def legacy_owner_email() -> str:

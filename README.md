@@ -71,6 +71,37 @@ A key is bound to one project. Presenting a valid key for a *different* project
 returns 401, not 404 — and asking for someone else's project from the dashboard
 returns 404 rather than 403, because a 403 would confirm the project exists.
 
+## Roles
+
+Two roles, and the environment decides which is which:
+
+```bash
+ADMIN_EMAILS=you@example.com,someone@example.com
+```
+
+A role stored only in the database could be granted by anyone able to write to
+the database, and revoking it would mean an edit rather than a config change. So
+`ADMIN_EMAILS` is authoritative — it is read on every request, the stored `role`
+field is corrected to match, and writing `role: "admin"` straight into Mongo
+grants nothing.
+
+**User** — one project (`LIMIT_PROJECTS_PER_USER`, default 1), full control over
+it: data browser, console, keys, settings, deletion.
+
+**Admin** — everything a user has, exempt from the project limit, plus `/admin`:
+every account and project on the instance, with keys, memory, request volume,
+error rate, and latency per project.
+
+The admin console is **read-only by construction** — the router has no write
+endpoints at all, so there is no mutating path to guard. It also never exposes
+stored values or key material: an admin sees that a project holds 1,284 keys and
+that its "Production" key was last used two minutes ago, not what is in the keys
+or what the key is. The ordinary project endpoints stay owner-scoped for admins
+too, so `/api/projects/{someone_elses}` is a 404 regardless of role.
+
+Non-admins get 404 rather than 403 from every admin route. There is no reason to
+advertise that a console exists to someone who cannot use it.
+
 ## Isolation
 
 Every tenant key is stored as `{project_id}:{key}`. Nothing in `keyspace.py`

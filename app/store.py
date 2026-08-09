@@ -11,7 +11,6 @@ control plane, which is small, low-traffic, and needs to survive restarts.
 
 from __future__ import annotations
 
-import asyncio
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from typing import Any
@@ -143,6 +142,10 @@ class Store(ABC):
     async def count_projects(self, user_id: str) -> int: ...
     @abstractmethod
     async def list_unowned_projects(self) -> list[dict]: ...
+    @abstractmethod
+    async def list_all_projects(self) -> list[dict]: ...
+    @abstractmethod
+    async def list_all_users(self) -> list[dict]: ...
 
     # API keys
     @abstractmethod
@@ -321,6 +324,14 @@ class MongoStore(Store):
         )
         return [_normalise(doc) async for doc in cursor]
 
+    async def list_all_projects(self) -> list[dict]:
+        cursor = self.projects.find({}).sort("created_at", -1)
+        return [_normalise(doc) async for doc in cursor]
+
+    async def list_all_users(self) -> list[dict]:
+        cursor = self.users.find({}).sort("created_at", -1)
+        return [_normalise(doc) async for doc in cursor]
+
     async def close(self) -> None:
         if self._client is not None:
             await self._client.close()
@@ -418,12 +429,15 @@ class MemoryStore(Store):
     """Non-persistent backend. Everything vanishes on restart — fine for tests,
     fine for `python -m app` on a laptop, never appropriate in production."""
 
+    # No locking: every critical section below is a dict read followed by a
+    # dict write with no await between them, so asyncio's single-threaded
+    # scheduling already makes them atomic.
+
     def __init__(self):
         self._users: dict[str, dict] = {}
         self._sessions: dict[str, dict] = {}
         self._projects: dict[str, dict] = {}
         self._api_keys: dict[str, dict] = {}
-        self._lock = asyncio.Lock()
 
     async def connect(self) -> None:
         return None
@@ -432,10 +446,9 @@ class MemoryStore(Store):
         return None
 
     async def create_user(self, doc: dict) -> dict:
-        async with self._lock:
-            if any(u["email"] == doc["email"] for u in self._users.values()):
-                raise ValueError("duplicate email")
-            self._users[doc["id"]] = dict(doc)
+        if any(u["email"] == doc["email"] for u in self._users.values()):
+            raise ValueError("duplicate email")
+        self._users[doc["id"]] = dict(doc)
         return doc
 
     async def get_user_by_email(self, email: str) -> dict | None:
@@ -484,10 +497,9 @@ class MemoryStore(Store):
         return len(doomed)
 
     async def create_project(self, doc: dict) -> dict:
-        async with self._lock:
-            if doc["id"] in self._projects:
-                raise ValueError("duplicate project")
-            self._projects[doc["id"]] = dict(doc)
+        if doc["id"] in self._projects:
+            raise ValueError("duplicate project")
+        self._projects[doc["id"]] = dict(doc)
         return doc
 
     async def get_project(self, project_id: str) -> dict | None:
@@ -510,6 +522,18 @@ class MemoryStore(Store):
 
     async def list_unowned_projects(self) -> list[dict]:
         return [dict(p) for p in self._projects.values() if not p.get("user_id")]
+
+    async def list_all_projects(self) -> list[dict]:
+        return sorted(
+            (dict(p) for p in self._projects.values()),
+            key=lambda p: p["created_at"], reverse=True,
+        )
+
+    async def list_all_users(self) -> list[dict]:
+        return sorted(
+            (dict(u) for u in self._users.values()),
+            key=lambda u: u["created_at"], reverse=True,
+        )
 
     async def claim_unowned_projects(self, user_id: str) -> int:
         claimed = 0
