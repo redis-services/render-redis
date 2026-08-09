@@ -16,9 +16,54 @@ from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from typing import Any
 
+from .security import hash_api_key, mask_api_key, new_id
+
 
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def legacy_project_documents(doc: dict) -> tuple[dict, dict | None]:
+    """Convert a pre-accounts project document into the current schema.
+
+    The original app stored projects as `{project_id, api_key}` with the key in
+    plaintext. The current schema uses `id` as the primary field and keeps API
+    keys in their own collection, hashed. Returns the fields to set on the
+    project plus an api_keys document, or (None-ish) if the row is unusable.
+
+    Migrated projects get `user_id: None` — nobody owns them, so they stay out
+    of every dashboard until explicitly claimed, but their keys keep working.
+    """
+    project_id = str(doc.get("project_id") or "").strip().lower()
+    if not project_id:
+        return {}, None
+
+    created_at = doc.get("created_at") or utcnow()
+    project_fields = {
+        "id": project_id,
+        "user_id": doc.get("user_id"),
+        "name": doc.get("name") or project_id,
+        "description": doc.get("description", ""),
+        "created_at": created_at,
+        "settings": doc.get("settings") or {"default_ttl": 0, "apply_default_ttl": False},
+        "migrated_from_legacy": True,
+    }
+
+    api_key = str(doc.get("api_key") or "").strip()
+    key_document = None
+    if api_key:
+        key_document = {
+            "id": new_id("key"),
+            "project_id": project_id,
+            "user_id": doc.get("user_id"),
+            "name": "Legacy key",
+            "key_hash": hash_api_key(api_key),
+            "masked": mask_api_key(api_key),
+            "created_at": created_at,
+            "last_used_at": None,
+            "revoked_at": None,
+        }
+    return project_fields, key_document
 
 
 def _as_aware(value: Any) -> Any:
@@ -82,6 +127,8 @@ class Store(ABC):
     async def delete_project(self, project_id: str) -> None: ...
     @abstractmethod
     async def count_projects(self, user_id: str) -> int: ...
+    @abstractmethod
+    async def list_unowned_projects(self) -> list[dict]: ...
 
     # API keys
     @abstractmethod
@@ -123,6 +170,12 @@ class MongoStore(Store):
         self.projects = db["projects"]
         self.api_keys = db["api_keys"]
 
+        # Migrations run first. Unique indexes cannot be built over documents
+        # from the old schema, where `id` is absent and therefore null.
+        await self.migrate()
+        await self.ensure_indexes()
+
+    async def ensure_indexes(self) -> None:
         await self.users.create_index("id", unique=True)
         await self.users.create_index("email", unique=True)
         await self.sessions.create_index("token_hash", unique=True)
@@ -134,6 +187,83 @@ class MongoStore(Store):
         await self.api_keys.create_index("id", unique=True)
         await self.api_keys.create_index("key_hash", unique=True)
         await self.api_keys.create_index("project_id")
+
+    async def migrate(self) -> dict:
+        """Bring documents from the pre-accounts schema up to date.
+
+        Idempotent: it only touches project documents that have no `id`, so
+        running it on an already-migrated database does nothing.
+        """
+        report = {"projects": 0, "api_keys": 0, "discarded": 0}
+        query = {"$or": [{"id": {"$exists": False}}, {"id": None}]}
+
+        # Materialise before mutating: updating documents that the cursor is
+        # still walking can skip or repeat rows.
+        legacy_docs = [doc async for doc in self.projects.find(query)]
+
+        for doc in legacy_docs:
+            fields, key_document = legacy_project_documents(doc)
+
+            if not fields:
+                # No usable project ID — nothing to migrate, and leaving it
+                # would keep blocking the unique index.
+                await self.projects.delete_one({"_id": doc["_id"]})
+                report["discarded"] += 1
+                continue
+
+            # A project with this ID may already exist from a partial run.
+            existing = await self.projects.find_one({"id": fields["id"]})
+            if existing and existing["_id"] != doc["_id"]:
+                await self.projects.delete_one({"_id": doc["_id"]})
+                report["discarded"] += 1
+                continue
+
+            await self.projects.update_one(
+                {"_id": doc["_id"]},
+                {"$set": fields, "$unset": {"project_id": "", "api_key": ""}},
+            )
+            report["projects"] += 1
+
+            if key_document and not await self.api_keys.find_one(
+                {"key_hash": key_document["key_hash"]}
+            ):
+                await self.api_keys.insert_one(key_document)
+                report["api_keys"] += 1
+
+        # Stray null-id documents in the other collections predate nothing and
+        # only exist to break unique indexes.
+        for collection in (self.users, self.api_keys, self.sessions):
+            field = "token_hash" if collection is self.sessions else "id"
+            result = await collection.delete_many(
+                {"$or": [{field: {"$exists": False}}, {field: None}]}
+            )
+            report["discarded"] += result.deleted_count
+
+        if report["projects"] or report["discarded"]:
+            print(
+                f"Migration: {report['projects']} project(s) upgraded, "
+                f"{report['api_keys']} legacy key(s) imported, "
+                f"{report['discarded']} unusable document(s) removed."
+            )
+        return report
+
+    async def claim_unowned_projects(self, user_id: str) -> int:
+        """Assign every ownerless project to a user. Used by LEGACY_OWNER_EMAIL."""
+        result = await self.projects.update_many(
+            {"$or": [{"user_id": None}, {"user_id": {"$exists": False}}]},
+            {"$set": {"user_id": user_id}},
+        )
+        await self.api_keys.update_many(
+            {"$or": [{"user_id": None}, {"user_id": {"$exists": False}}]},
+            {"$set": {"user_id": user_id}},
+        )
+        return result.modified_count
+
+    async def list_unowned_projects(self) -> list[dict]:
+        cursor = self.projects.find(
+            {"$or": [{"user_id": None}, {"user_id": {"$exists": False}}]}
+        )
+        return [_normalise(doc) async for doc in cursor]
 
     async def close(self) -> None:
         if self._client is not None:
@@ -322,6 +452,20 @@ class MemoryStore(Store):
     async def count_projects(self, user_id: str) -> int:
         return sum(1 for p in self._projects.values() if p["user_id"] == user_id)
 
+    async def list_unowned_projects(self) -> list[dict]:
+        return [dict(p) for p in self._projects.values() if not p.get("user_id")]
+
+    async def claim_unowned_projects(self, user_id: str) -> int:
+        claimed = 0
+        for project in self._projects.values():
+            if not project.get("user_id"):
+                project["user_id"] = user_id
+                claimed += 1
+        for key in self._api_keys.values():
+            if not key.get("user_id"):
+                key["user_id"] = user_id
+        return claimed
+
     async def create_api_key(self, doc: dict) -> dict:
         self._api_keys[doc["id"]] = dict(doc)
         return doc
@@ -354,11 +498,28 @@ class MemoryStore(Store):
         return len(doomed)
 
 
-async def build_store(uri: str, db_name: str) -> tuple[Store, bool]:
-    """Return (store, is_persistent). Falls back to memory if Mongo is absent
-    or unreachable, so a misconfigured deploy degrades instead of crashing."""
+class StoreUnavailable(RuntimeError):
+    """Raised when the control plane cannot be reached and falling back to a
+    non-persistent store would silently destroy user data."""
+
+
+async def build_store(uri: str, db_name: str, allow_fallback: bool = True) -> tuple[Store, bool]:
+    """Return (store, is_persistent).
+
+    Falling back to memory is convenient locally and catastrophic in
+    production: the app boots, accepts sign-ups, and loses every account on the
+    next restart. So the fallback is opt-in via `allow_fallback`, which
+    main.py sets to False whenever the app is running in production.
+    """
     if not uri:
-        print("⚠️  MONGODB_URI not set — using in-memory store. Data will not survive a restart.")
+        message = "MONGODB_URI is not set."
+        if not allow_fallback:
+            raise StoreUnavailable(
+                f"{message} Refusing to start in production without a persistent store — "
+                "accounts would be lost on every restart. Set MONGODB_URI, or set "
+                "ALLOW_MEMORY_STORE=true if you really want an ephemeral deployment."
+            )
+        print(f"⚠️  {message} Using in-memory store; data will not survive a restart.")
         store = MemoryStore()
         await store.connect()
         return store, False
@@ -368,9 +529,14 @@ async def build_store(uri: str, db_name: str) -> tuple[Store, bool]:
         await store.connect()
         print(f"MongoDB connected: {db_name}")
         return store, True
-    except Exception as exc:  # noqa: BLE001 - any driver error should degrade, not crash
-        print(f"⚠️  MongoDB connection failed ({exc}); falling back to in-memory store.")
+    except Exception as exc:  # noqa: BLE001 - driver errors vary widely
         await store.close()
+        if not allow_fallback:
+            raise StoreUnavailable(
+                f"MongoDB connection failed: {exc}\n"
+                "Refusing to fall back to an in-memory store in production."
+            ) from exc
+        print(f"⚠️  MongoDB connection failed ({exc}); falling back to in-memory store.")
         fallback = MemoryStore()
         await fallback.connect()
         return fallback, False

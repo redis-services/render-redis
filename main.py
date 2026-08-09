@@ -43,9 +43,11 @@ _LAST_USED_INTERVAL = 60.0
 async def lifespan(app: FastAPI):
     app.state.redis = aioredis.from_url(config.redis_url(), decode_responses=True)
     app.state.store, app.state.persistent = await build_store(
-        config.mongodb_uri(), config.mongodb_db()
+        config.mongodb_uri(), config.mongodb_db(),
+        allow_fallback=config.allow_memory_store(),
     )
     app.state.keep_alive_task = None
+    await _claim_legacy_projects(app)
 
     if config.keep_alive_enabled():
         app.state.keep_alive_task = asyncio.create_task(_self_ping_loop())
@@ -181,6 +183,34 @@ async def keep_alive(request: Request):
         return {"status": "alive", "redis": pong}
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(503, f"Keep-alive failed: {exc}") from exc
+
+
+async def _claim_legacy_projects(app: FastAPI) -> None:
+    """Hand ownerless projects — the ones migrated from the pre-accounts schema
+    — to the account named by LEGACY_OWNER_EMAIL, if that account exists."""
+    unowned = await app.state.store.list_unowned_projects()
+    if not unowned:
+        return
+
+    email = config.legacy_owner_email()
+    if not email:
+        names = ", ".join(project["id"] for project in unowned[:5])
+        suffix = "…" if len(unowned) > 5 else ""
+        print(
+            f"ℹ️  {len(unowned)} migrated project(s) have no owner ({names}{suffix}). "
+            "Their API keys still work, but they are hidden from every dashboard. "
+            "Set LEGACY_OWNER_EMAIL to an existing account to claim them."
+        )
+        return
+
+    user = await app.state.store.get_user_by_email(email)
+    if not user:
+        print(f"⚠️  LEGACY_OWNER_EMAIL is {email}, but no such account exists yet. "
+              "Sign up with that address and restart to claim the migrated projects.")
+        return
+
+    claimed = await app.state.store.claim_unowned_projects(user["id"])
+    print(f"Assigned {claimed} migrated project(s) to {email}.")
 
 
 async def _self_ping_loop():

@@ -125,8 +125,40 @@ dashboard and move your clients to the new key.
 | Keys visible in plaintext | Hashed; full value shown once |
 | `projects.py` registry | `legacy/projects.py`, superseded by the store |
 
-**Set `MONGODB_URI` before you deploy.** Without it every account is lost on the
-next restart.
+### Migrating an existing database
+
+If your Mongo already has projects from the old admin panel, they are stored as
+`{project_id, api_key}` with no `id` field. Mongo reads them all as `id: null`
+and refuses to build the unique index, which is what produces:
+
+```
+E11000 duplicate key error … index: id_1 dup key: { id: null }
+```
+
+The app migrates automatically at startup, but you can look first:
+
+```bash
+python migrate.py                              # dry run, changes nothing
+python migrate.py --apply                      # migrate
+python migrate.py --claim you@example.com --apply
+```
+
+Each legacy project becomes a project document plus one hashed "Legacy key"
+entry — the plaintext key is discarded once it's hashed, so **copy any keys you
+still need out of Mongo before migrating.** Existing clients keep working either
+way; the hash is what authenticates them.
+
+Migrated projects have no owner, so they authenticate fine but stay hidden from
+every dashboard. Claim them with `--claim`, or set `LEGACY_OWNER_EMAIL` and
+restart.
+
+### Persistence
+
+**Set `MONGODB_URI` before you deploy.** In production the app now refuses to
+start without a reachable persistent store rather than falling back to memory —
+a fallback means the app boots, accepts sign-ups, and loses every account on the
+next restart. Set `ALLOW_MEMORY_STORE=true` if you genuinely want an ephemeral
+deployment. Outside production the fallback is still automatic.
 
 ## Tests
 

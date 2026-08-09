@@ -13,6 +13,7 @@ from app.security import (
     verify_password,
 )
 from app.metrics import percentiles
+from app.store import legacy_project_documents, utcnow
 
 
 # ── Pure functions ─────────────────────────────────────────────────────────────
@@ -57,6 +58,78 @@ def test_percentiles_from_buckets():
 
 def test_percentiles_with_no_data():
     assert percentiles({}) == {"p50": 0.0, "p95": 0.0, "p99": 0.0}
+
+
+# ── Legacy migration ───────────────────────────────────────────────────────────
+
+def test_legacy_project_is_converted():
+    fields, key_document = legacy_project_documents(
+        {"project_id": "Old_App", "api_key": "legacy-secret-key"}
+    )
+    assert fields["id"] == "old_app"
+    assert fields["user_id"] is None
+    assert fields["migrated_from_legacy"] is True
+
+    assert key_document["project_id"] == "old_app"
+    assert key_document["name"] == "Legacy key"
+    # The plaintext key must not survive the migration.
+    assert "legacy-secret-key" not in str(key_document)
+    assert key_document["key_hash"] == hash_api_key("legacy-secret-key")
+
+
+def test_legacy_project_without_a_key_still_converts():
+    fields, key_document = legacy_project_documents({"project_id": "keyless"})
+    assert fields["id"] == "keyless"
+    assert key_document is None
+
+
+def test_legacy_project_without_an_id_is_unusable():
+    fields, key_document = legacy_project_documents({"api_key": "orphan"})
+    assert fields == {}
+    assert key_document is None
+
+
+def test_migrated_project_is_hidden_but_its_key_works(client, account):
+    """An ownerless migrated project must not appear in anyone's dashboard,
+    while its API key keeps authenticating."""
+    import asyncio
+    import main
+
+    store = main.app.state.store
+    fields, key_document = legacy_project_documents(
+        {"project_id": "legacy_svc", "api_key": "legacy-secret-key", "created_at": utcnow()}
+    )
+    asyncio.get_event_loop().run_until_complete(store.create_project(fields))
+    asyncio.get_event_loop().run_until_complete(store.create_api_key(key_document))
+
+    assert client.get("/api/projects").json()["projects"] == []
+    assert client.get("/api/projects/legacy_svc").status_code == 404
+
+    response = client.post(
+        "/legacy_svc/set/hello", json={"value": "world"},
+        headers={"x-api-key": "legacy-secret-key"},
+    )
+    assert response.status_code == 200
+
+
+def test_claiming_assigns_migrated_projects(client, account):
+    import asyncio
+    import main
+
+    store = main.app.state.store
+    fields, key_document = legacy_project_documents(
+        {"project_id": "legacy_svc", "api_key": "legacy-secret-key", "created_at": utcnow()}
+    )
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(store.create_project(fields))
+    loop.run_until_complete(store.create_api_key(key_document))
+
+    user = loop.run_until_complete(store.get_user_by_email(account["email"]))
+    claimed = loop.run_until_complete(store.claim_unowned_projects(user["id"]))
+    assert claimed == 1
+
+    listing = client.get("/api/projects").json()["projects"]
+    assert [item["id"] for item in listing] == ["legacy_svc"]
 
 
 # ── Auth ───────────────────────────────────────────────────────────────────────

@@ -86,3 +86,15 @@ def keep_alive_enabled() -> bool:
 
 def signups_enabled() -> bool:
     return _flag("SIGNUPS_ENABLED", "true")
+
+
+def allow_memory_store() -> bool:
+    """Outside production the in-memory store is a convenience. Inside it, it is
+    a data-loss bug waiting to happen, so it must be requested explicitly."""
+    return _flag("ALLOW_MEMORY_STORE", "false") or not is_production()
+
+
+def legacy_owner_email() -> str:
+    """Projects migrated from the pre-accounts schema have no owner. Setting
+    this to an existing account's email assigns them to that account at startup."""
+    return os.getenv("LEGACY_OWNER_EMAIL", "").strip().lower()
