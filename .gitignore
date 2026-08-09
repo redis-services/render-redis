@@ -1,5 +1,0 @@
-.env
-__pycache__
-*.pyc
-test_app.py
-test_app.html
