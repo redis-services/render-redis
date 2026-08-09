@@ -22,7 +22,7 @@ import sys
 from dotenv import load_dotenv
 
 from app import config
-from app.store import MongoStore, legacy_project_documents
+from app.store import MongoStore, is_obsolete_index, legacy_project_documents
 
 load_dotenv()
 
@@ -37,7 +37,20 @@ async def inspect(store: MongoStore) -> dict:
     unowned = await store.projects.count_documents(
         {"$or": [{"user_id": None}, {"user_id": {"$exists": False}}], "id": {"$ne": None}}
     )
-    return {"legacy": legacy, "current": current, "unowned": unowned}
+
+    obsolete = []
+    for collection in (store.projects, store.users, store.sessions):
+        try:
+            existing = await collection.index_information()
+        except Exception:  # noqa: BLE001
+            continue
+        obsolete += [
+            f"{collection.name}.{name}"
+            for name, spec in existing.items()
+            if is_obsolete_index(name, spec)
+        ]
+
+    return {"legacy": legacy, "current": current, "unowned": unowned, "obsolete": obsolete}
 
 
 async def main() -> int:
@@ -73,6 +86,11 @@ async def main() -> int:
         print(f"  Projects on the old schema     : {len(state['legacy'])}")
         print(f"  Projects with no owner         : {state['unowned']}")
 
+        if state["obsolete"]:
+            print("\nWould drop these indexes, left over from the old schema:")
+            for name in state["obsolete"]:
+                print(f"  ✗ {name}")
+
         if state["legacy"]:
             print("\nWould migrate:")
             for doc in state["legacy"]:
@@ -83,14 +101,17 @@ async def main() -> int:
                 key_note = "1 legacy key imported" if key_document else "no key found"
                 print(f"  → {fields['id']:<24} {key_note}")
 
+        if not state["legacy"] and not state["obsolete"]:
+            print("\nNothing to migrate — this database is already on the current schema.")
+
         if not args.apply:
             print("\nDry run. Re-run with --apply to make these changes.\n")
             return 0
 
-        report = await store.migrate()
-        await store.ensure_indexes()
+        report = await store.repair()
         print(f"\nMigrated {report['projects']} project(s), "
               f"imported {report['api_keys']} key(s), "
+              f"dropped {report['indexes_dropped']} obsolete index(es), "
               f"removed {report['discarded']} unusable document(s).")
         print("Indexes built successfully.")
 

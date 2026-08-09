@@ -13,7 +13,7 @@ from app.security import (
     verify_password,
 )
 from app.metrics import percentiles
-from app.store import legacy_project_documents, utcnow
+from app.store import is_obsolete_index, legacy_project_documents, utcnow
 
 
 # ── Pure functions ─────────────────────────────────────────────────────────────
@@ -75,6 +75,20 @@ def test_legacy_project_is_converted():
     # The plaintext key must not survive the migration.
     assert "legacy-secret-key" not in str(key_document)
     assert key_document["key_hash"] == hash_api_key("legacy-secret-key")
+
+
+def test_obsolete_indexes_are_identified():
+    # The old app's unique index on project_id. The migration nulls that field,
+    # so this index must be dropped first or the second document is rejected.
+    assert is_obsolete_index("project_id_1", {"key": [("project_id", 1)], "unique": True})
+    assert is_obsolete_index("api_key_1", {"key": [("api_key", 1)]})
+
+
+def test_current_indexes_are_kept():
+    assert not is_obsolete_index("_id_", {"key": [("_id", 1)]})
+    assert not is_obsolete_index("id_1", {"key": [("id", 1)], "unique": True})
+    assert not is_obsolete_index("user_id_1", {"key": [("user_id", 1)]})
+    assert not is_obsolete_index("key_hash_1", {"key": [("key_hash", 1)], "unique": True})
 
 
 def test_legacy_project_without_a_key_still_converts():

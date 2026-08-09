@@ -135,6 +135,18 @@ and refuses to build the unique index, which is what produces:
 E11000 duplicate key error … index: id_1 dup key: { id: null }
 ```
 
+There is a second, subtler half to this. The old app also built a **unique index
+on `project_id`**. The migration unsets that field, which nulls it on every
+document at once — and a unique index rejects the second null just as readily:
+
+```
+E11000 duplicate key error … index: project_id_1 dup key: { project_id: null }
+```
+
+So the migration drops obsolete indexes *before* touching any document, then
+migrates, then builds the current indexes. Order matters; both orderings are
+covered by tests in `tests/test_migration.py`.
+
 The app migrates automatically at startup, but you can look first:
 
 ```bash

@@ -23,6 +23,20 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+# Fields that only existed in the pre-accounts schema. Any index built on one
+# of them belongs to the old app and must be removed before migrating: the
+# migration unsets these fields, and a unique index over a field that is about
+# to become null on every document will reject the second document it sees.
+OBSOLETE_INDEX_FIELDS = frozenset({"project_id", "api_key"})
+
+
+def is_obsolete_index(name: str, spec: dict) -> bool:
+    if name == "_id_":
+        return False
+    keys = [field for field, _direction in spec.get("key", [])]
+    return any(field in OBSOLETE_INDEX_FIELDS for field in keys)
+
+
 def legacy_project_documents(doc: dict) -> tuple[dict, dict | None]:
     """Convert a pre-accounts project document into the current schema.
 
@@ -176,17 +190,47 @@ class MongoStore(Store):
         await self.ensure_indexes()
 
     async def ensure_indexes(self) -> None:
-        await self.users.create_index("id", unique=True)
-        await self.users.create_index("email", unique=True)
-        await self.sessions.create_index("token_hash", unique=True)
-        await self.sessions.create_index("user_id")
-        # Mongo evicts expired sessions for us.
-        await self.sessions.create_index("expires_at", expireAfterSeconds=0)
-        await self.projects.create_index("id", unique=True)
-        await self.projects.create_index("user_id")
-        await self.api_keys.create_index("id", unique=True)
-        await self.api_keys.create_index("key_hash", unique=True)
-        await self.api_keys.create_index("project_id")
+        wanted = [
+            (self.users, "id", {"unique": True}),
+            (self.users, "email", {"unique": True}),
+            (self.sessions, "token_hash", {"unique": True}),
+            (self.sessions, "user_id", {}),
+            # Mongo evicts expired sessions for us.
+            (self.sessions, "expires_at", {"expireAfterSeconds": 0}),
+            (self.projects, "id", {"unique": True}),
+            (self.projects, "user_id", {}),
+            (self.api_keys, "id", {"unique": True}),
+            (self.api_keys, "key_hash", {"unique": True}),
+            (self.api_keys, "project_id", {}),
+        ]
+        for collection, field, options in wanted:
+            try:
+                await collection.create_index(field, **options)
+            except Exception as exc:  # noqa: BLE001 - report, don't guess
+                raise RuntimeError(
+                    f"Could not build the index on {collection.name}.{field}: {exc}\n"
+                    "This usually means documents from an older schema are still present. "
+                    "Run `python migrate.py` to see what's there, then `--apply` to fix it."
+                ) from exc
+
+    async def drop_obsolete_indexes(self) -> list[str]:
+        """Remove indexes left behind by the pre-accounts schema."""
+        dropped: list[str] = []
+        for collection in (self.projects, self.api_keys, self.users, self.sessions):
+            try:
+                existing = await collection.index_information()
+            except Exception:  # noqa: BLE001 - a missing collection has no indexes
+                continue
+            for name, spec in existing.items():
+                if is_obsolete_index(name, spec):
+                    # api_keys.project_id is a current index, not a legacy one.
+                    if collection is self.api_keys and name == "project_id_1":
+                        continue
+                    await collection.drop_index(name)
+                    dropped.append(f"{collection.name}.{name}")
+        if dropped:
+            print(f"Migration: dropped obsolete index(es) {', '.join(dropped)}")
+        return dropped
 
     async def migrate(self) -> dict:
         """Bring documents from the pre-accounts schema up to date.
@@ -194,7 +238,13 @@ class MongoStore(Store):
         Idempotent: it only touches project documents that have no `id`, so
         running it on an already-migrated database does nothing.
         """
-        report = {"projects": 0, "api_keys": 0, "discarded": 0}
+        report = {"projects": 0, "api_keys": 0, "discarded": 0, "indexes_dropped": 0}
+
+        # Must happen before any document is touched. The migration unsets
+        # `project_id`, and the old unique index on that field would reject the
+        # second document to have it nulled.
+        report["indexes_dropped"] = len(await self.drop_obsolete_indexes())
+
         query = {"$or": [{"id": {"$exists": False}}, {"id": None}]}
 
         # Materialise before mutating: updating documents that the cursor is
@@ -245,6 +295,12 @@ class MongoStore(Store):
                 f"{report['api_keys']} legacy key(s) imported, "
                 f"{report['discarded']} unusable document(s) removed."
             )
+        return report
+
+    async def repair(self) -> dict:
+        """Migrate, then rebuild indexes. Safe to run repeatedly."""
+        report = await self.migrate()
+        await self.ensure_indexes()
         return report
 
     async def claim_unowned_projects(self, user_id: str) -> int:
